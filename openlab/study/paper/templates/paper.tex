@@ -1,0 +1,43 @@
+% The study's paper: one LaTeX document, yours to write. Load any package with \usepackage, and include images
+% from the study's folder with \includegraphics (a path from paper/, e.g. figures/chart.png, or from the study).
+% Bind every number to the record: \lab{result:<id>#metrics.<metric>.value}, \labtab{result:<id>},
+% \labfig{result:<id>}, \labclaim{claim:<id>}, \labcite{<source>}{<quote>}. \labsection{<name>} puts in the text of a
+% section openlab writes from the record (data, methods, literature, results, limitations, reproducibility,
+% checklist). A number typed in the prose is a finding: the draft shows it, the signed build refuses it.
+\documentclass[11pt]{article}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{graphicx,booktabs}
+
+\title{<<title>>}
+\author{<<authors>>}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+What was asked, what was done, and what was found, in a few sentences.
+\end{abstract}
+
+\section{Introduction}
+The question and why it matters.
+
+\section{Data}
+Where the data come from and what they hold. % \labsection{data} puts openlab's account of the data here
+
+\section{Methods}
+The model, the evaluation and the baselines. % \labsection{methods} puts openlab's account of the plan here
+
+\section{Results}
+What the runs found. % \labtab{result:<id>} tables a result; \labsection{results} lists the current ones
+
+\section{Discussion}
+What the results mean, and what they do not show.
+
+\section{Limitations}
+% \labsection{limitations} lists what the record knows: the trials, the holdout, the assumptions at risk
+
+\section{Reproducibility}
+\labsection{reproducibility}
+
+\end{document}

@@ -1,0 +1,31 @@
+[study]
+name = "__name__"
+question = "Do the five measured features predict the class better than the majority baseline?"
+mode = "static"
+
+[data.table]                    # exactly one of provider / snapshot / file; a file needs the recipe that makes it
+file = "data/table.parquet"
+recipe = "recipes/make_data.py"
+
+[target]
+column = "y"
+
+[split]
+scheme = "stratified"
+k = 5
+fraction = 0.2                  # the holdout, kept outside the study until a person looks
+seed = 1
+
+[evaluate]
+prediction = "prob"
+metrics = ["auc", "brier", "logloss"]   # the first one is primary
+baselines = ["majority"]
+alpha = 0.05
+
+[budget]
+trials = 20
+holdout_looks = 1
+
+[sandbox]
+# threads = 1            # the model's thread pools (polars, BLAS); more is allowed and recorded with each run
+network = false

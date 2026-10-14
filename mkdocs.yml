@@ -1,0 +1,36 @@
+site_name: Openlab
+site_description: "Supervise your research agents, and keep a record they cannot bend."
+docs_dir: docs
+site_dir: site
+theme:
+  name: readthedocs
+exclude_docs: |
+  pypi.md
+nav:
+  - Home: index.md
+  - Install: install.md
+  - The first five minutes: first-five-minutes.md
+  - Supervising agents: supervising-agents.md
+  - "The live view: openlab show": show.md
+  - Research from a prompt: research-from-prompt.md
+  - A literature review: literature-review.md
+  - "The plan: study.toml": plan.md
+  - Guarantees and refusals: guards.md
+  - Claims, tests and the paper: claims.md
+  - ML models in a study: ml.md
+  - Search, selection and lessons: search.md
+  - Module checks, ensembles, critiques: checks.md
+  - On a server or GPU box: box.md
+  - A W&B mirror: mirror.md
+  - Coming from R: from-r.md
+  - What is in the box: features.md
+  - Command reference: cli.md
+  - For agents: AGENTS.md
+  - Glossary: GLOSSARY.md
+  - The benchmark: bench.md
+  - "Benchmark mode: MLE-bench": benchmark.md
+markdown_extensions:
+  - tables
+  - fenced_code
+  - toc:
+      permalink: true

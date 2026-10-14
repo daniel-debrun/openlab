@@ -1,0 +1,973 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app
+ * pre-emit critique: P4 H4 E4 S4 R5 V3 */
+/* ============================================================================
+   app.css — the shell's layout and the screens built on the primitives.
+
+   No hex literals. Every colour is a token or a color-mix of one; every space,
+   size and radius is a token. If something here needs a value that is not a
+   token, the token is missing, not this file's problem to solve locally.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------- shell */
+/* Rows: top bar · main · [separator] · [agent drawer] · status bar.
+   The optional two are `auto`, and the drawer carries its dragged height as an
+   inline style — the grid must not have an opinion about a number the user
+   chose. */
+.shell {
+  display: grid;
+  /* the column is named so it cannot grow to its content: an implicit `auto` column made the whole page as wide
+     as the top bar wanted to be, and a phone scrolled sideways */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 36px minmax(0, 1fr) auto auto auto;
+  height: 100%;
+}
+/* Columns: tree · document. */
+.shell-main {
+  display: grid;
+  grid-template-columns: minmax(180px, 250px) minmax(0, 1fr);
+  min-height: 0;
+}
+
+/* ------------------------------------------------------------- resizers */
+/* A separator is a control, so it has a real hit area (not the 1px line it
+   looks like) and a visible focus ring — it is reachable by keyboard, and a
+   control you can focus but cannot see focused is worse than one you cannot
+   focus at all. */
+.rsz {
+  position: relative;
+  background: var(--border);
+  flex: 0 0 auto;
+  touch-action: none;
+}
+.rsz-vertical { width: 1px; cursor: col-resize; }
+.rsz-horizontal { height: 1px; cursor: row-resize; }
+.rsz-grip {
+  position: absolute;
+  inset: 0;
+}
+/* the hit area, spread either side of the hairline */
+.rsz-vertical .rsz-grip { inset: 0 -3px; }
+.rsz-horizontal .rsz-grip { inset: -3px 0; }
+.rsz:hover,
+.rsz:focus-visible { background: var(--accent); }
+.rsz:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
+
+/* -------------------------------------------------------- agent drawer */
+.agent-drawer {
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+}
+/* off: the drawer is exactly as tall as the sentence it has to say */
+.agent-drawer.is-notice { height: auto; }
+
+/* ------------------------------------------------------------------ topbar */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: 0 var(--sp-5);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-brand {
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  color: var(--text-1);
+}
+.topbar-root {
+  font-size: var(--fs-3);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 18rem;
+}
+.topbar-agent { font-weight: var(--fw-medium); }
+.topbar-more > .ui-menu-button { border-color: transparent; background: none; color: var(--text-2); }
+.topbar-spacer { flex: 1; }
+/* The words when there is room for them, the glyph when there is not. Both are
+   in the DOM and CSS chooses, so it is right on the first paint rather than
+   after a measure — and the accessible name is the button's `title` either
+   way, so the glyph is never the only thing a screen reader gets. */
+.topbar-about-long { display: none; }
+.topbar-about-short { display: inline; }
+@media (min-width: 1100px) {
+  .topbar-about-long { display: inline; }
+  .topbar-about-short { display: none; }
+}
+.about-version { font-family: var(--font-mono); font-size: var(--fs-1); color: var(--text-3); }
+
+/* The connection dot. Three states, and "closed" is the only loud one —
+   because it is the only one that means the screen may be stale. */
+.link-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  flex: 0 0 auto;
+  background: var(--text-3);
+}
+.link { display: inline-flex; align-items: center; gap: var(--sp-3); flex: 0 0 auto; font-size: var(--fs-2); }
+.link-open .link-dot { background: var(--sys-ok); }
+.link-connecting .link-dot { background: var(--sys-warn); }
+.link-closed .link-dot { background: var(--sys-danger); }
+.link-connecting .link-word { color: var(--sys-warn); }
+.link-closed .link-word { color: var(--sys-danger); }
+
+/* -------------------------------------------------------------------- rail */
+.rail {
+  background: var(--surface-1);
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  min-height: 0;
+}
+/* head, body, notes: the first and the last stay put while the body scrolls */
+.tree { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto; min-height: 0; }
+.tree-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+  z-index: var(--z-sticky);
+}
+.tree-head-label {
+  font-size: var(--fs-1);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-3);
+}
+.tree-body { padding: var(--sp-2) 0 var(--sp-7); }
+/* a file dragged over the tree: dropping it uploads it into the workspace */
+.tree.is-drop { outline: 1px dashed var(--accent); outline-offset: -4px; }
+/* the first screen of an empty workspace — where a newcomer actually lands */
+.tree-empty { padding: var(--sp-4); font-size: var(--fs-1); color: var(--text-3); }
+
+/* ------------------------------------------------------------------- notes */
+/* The foot of the tree: one input, always there, and a dated list above it.
+   Sticky, like the tree's own head, because an idea arrives while you are
+   reading something else — scrolling to find the input is precisely the context
+   switch this exists to remove. See shell/NotesStrip.tsx. */
+.notes {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-1);
+  border-top: 1px solid var(--border);
+  z-index: var(--z-sticky);
+}
+.notes-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.notes-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.notes-toggle:hover .tree-head-label { color: var(--text-1); }
+.notes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-1);
+  /* a scratchpad, not a panel: the list gives the notebook back its screen */
+  max-height: 38vh;
+  overflow: auto;
+}
+.note { display: grid; gap: var(--sp-1); padding: var(--sp-2); border-radius: var(--r-1); }
+.note:hover { background: var(--surface-2); }
+.note-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-2); }
+.note-when { font-family: var(--font-mono); font-size: var(--fs-1); color: var(--text-3); white-space: nowrap; }
+.note-doc {
+  font-family: var(--font-mono);
+  font-size: var(--fs-1);
+  color: var(--accent);
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-tag { font-size: var(--fs-1); color: var(--text-3); }
+.note-text { color: var(--text-1); line-height: var(--lh-base); }
+/* done is legible in the file as `- [x]`; here it is legible as a struck line */
+.note.is-done .note-text { color: var(--text-3); text-decoration: line-through; }
+/* The two affordances, quiet until wanted — `opacity` rather than `visibility`,
+   so they stay in the tab order: a note you can reach with the keyboard is one
+   you can promote with the keyboard. */
+.note-acts { display: flex; gap: var(--sp-2); opacity: 0; }
+.note:hover .note-acts, .note:focus-within .note-acts { opacity: 1; }
+.notes-more {
+  justify-self: start;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-1);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.notes-more:hover { color: var(--text-1); }
+.notes-form { display: flex; }
+.notes-input { width: 100%; font-size: var(--fs-2); padding: var(--sp-2) var(--sp-3); }
+
+/* ------------------------------------------------------------------ about */
+.about { display: grid; gap: var(--sp-5); }
+.about p { margin: 0; font-size: var(--fs-3); line-height: var(--lh-loose); color: var(--text-2); }
+.about p strong { color: var(--text-1); }
+.about code { background: var(--surface-2); padding: 0 var(--sp-2); border-radius: var(--r-1); }
+
+.about-glossary { display: grid; gap: var(--sp-4); margin: 0; }
+.about-term { display: grid; gap: var(--sp-1); }
+.about-term dt {
+  font-family: var(--font-mono);
+  font-size: var(--fs-3);
+  color: var(--text-1);
+}
+.about-term dd {
+  margin: 0;
+  font-size: var(--fs-2);
+  line-height: var(--lh-base);
+  color: var(--text-2);
+  max-width: 60ch;
+}
+
+/* -------------------------------------------------------------------- tree */
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: var(--fs-2);
+  text-align: left;
+  padding: var(--sp-1) var(--sp-4);
+  min-height: 24px; /* the smallest target a pointer can be asked to hit (WCAG 2.2, 2.5.8) */
+  cursor: pointer;
+}
+.tree-row:hover { background: var(--surface-2); color: var(--text-1); }
+.tree-glyph { color: var(--text-3); width: 1em; flex: 0 0 auto; }
+.tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-file { display: flex; }
+.tree-open {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.tree-open:disabled { cursor: default; color: var(--text-3); }
+.tree-file.is-open { background: var(--surface-2); color: var(--text-1); }
+.tree-file.is-open .tree-name { font-weight: var(--fw-medium); }
+.tree-bytes {
+  font-family: var(--font-mono);
+  font-size: var(--fs-1);
+  color: var(--text-3);
+  flex: 0 0 auto;
+}
+.tree-del {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0 var(--sp-2);
+  opacity: 0;
+  flex: 0 0 auto;
+}
+.tree-file:hover .tree-del { opacity: 1; }
+.tree-del:hover { color: var(--sys-danger); }
+
+/* --------------------------------------------------------------- tab strip */
+/* Two rows: the strip, then the document. The document is the scroller, NOT the
+   pane — the strip has to stay put while you read, and `.notebook-head` is
+   sticky against whichever ancestor scrolls, which is now `.doc-pane`. */
+.shell-doc {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  min-height: 0;
+  background: var(--surface-0);
+}
+.doc-pane { overflow: auto; min-height: 0; }
+
+/* One line, and it scrolls: ten open documents must not be allowed to wrap into
+   a second row and take another 30px off a 720px screen. */
+.tabstrip {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.tabstrip-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 15rem;
+  border-right: 1px solid var(--border);
+  /* the active marker is a 2px underline, so every tab reserves it and no tab
+     moves by two pixels when it becomes the active one */
+  border-bottom: 2px solid transparent;
+  color: var(--text-2);
+}
+.tabstrip-tab:hover { background: var(--surface-2); color: var(--text-1); }
+.tabstrip-tab.is-active {
+  background: var(--surface-0);
+  border-bottom-color: var(--accent);
+  color: var(--text-1);
+}
+.tabstrip-open {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-2);
+  padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);
+}
+.tabstrip-glyph { flex: 0 0 auto; color: var(--text-3); }
+.tabstrip-tab.is-active .tabstrip-glyph { color: var(--accent); }
+.tabstrip-name {
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Quiet until you go for it, but never hidden: a tab you cannot see how to close
+   is the reason a strip fills up. Always drawn, so no tab changes width on hover. */
+.tabstrip-close {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: var(--fs-1);
+  line-height: 1;
+  padding: var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-1);
+  opacity: 0.4;
+}
+.tabstrip-tab:hover .tabstrip-close,
+.tabstrip-tab.is-active .tabstrip-close,
+.tabstrip-close:focus-visible { opacity: 1; }
+.tabstrip-close:hover { color: var(--text-1); }
+
+/* ---------------------------------------------------------------- notebook */
+.notebook { padding: var(--sp-5) var(--sp-6) var(--sp-9); max-width: 1000px; }
+/* Sticky, because at 1280x720 with the agent drawer open the notebook column is
+   about 400px tall — two cells — and "Run all" / "Export" scrolled out of reach
+   after one flick of the wheel. The primary actions of a region should not be
+   something you have to scroll back up to find. */
+.notebook-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-4);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--surface-0);
+  padding: var(--sp-3) 0;
+  flex-wrap: wrap;
+}
+.notebook-title {
+  margin: 0;
+  min-width: 0;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-4);
+  font-weight: var(--fw-semibold);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.notebook-actions { display: flex; flex: 1 1 26rem; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--sp-2); }
+
+/* ------------------------------------------------------------- start screen */
+/* Two columns: the statement and the starts; a real verdict and what you get.
+   The document column's width, so it sits where the notebook will. */
+.start {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: var(--sp-9);
+  max-width: 1000px;
+  padding: var(--sp-9) var(--sp-7) var(--sp-9);
+}
+.start-title {
+  margin: 0 0 var(--sp-5);
+  font-family: var(--font-display);
+  font-size: var(--fs-8);
+  font-weight: var(--fw-normal);
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+.start-lede { margin: 0 0 var(--sp-8); font-size: var(--fs-5); line-height: var(--lh-loose); color: var(--text-2); max-width: 52ch; }
+.start-hint { font-size: var(--fs-3); color: var(--text-2); max-width: 52ch; line-height: var(--lh-base); }
+.start-agent { margin-top: var(--sp-8); padding-top: var(--sp-6); border-top: 1px solid var(--border); display: grid; gap: var(--sp-3); justify-items: start; }
+.start-ready { margin: 0 0 var(--sp-6); font-size: var(--fs-3); color: var(--text-2); }
+.start-ready.is-ok { color: var(--sys-ok); }
+.start-ready.is-warn { padding: var(--sp-4) var(--sp-5); border: 1px solid var(--border); border-left: 3px solid var(--sys-warn); border-radius: var(--r-2); background: var(--sys-warn-bg); }
+.start-ready.is-warn p { margin: 0 0 var(--sp-2); }
+.start-ready.is-warn ul { margin: 0; padding-left: var(--sp-6); display: grid; gap: var(--sp-2); }
+.start-ready code { overflow-wrap: anywhere; }
+.start-optional { color: var(--text-2); }
+.start-prompts { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); width: 100%; }
+.start-prompt {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-3);
+  color: var(--text-1);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: var(--sp-3) var(--sp-5);
+  cursor: pointer;
+}
+.start-prompt:hover:enabled { border-color: var(--accent); }
+.start-prompt:disabled { color: var(--text-3); cursor: not-allowed; }
+.start-sub { margin: 0; font-family: var(--font-display); font-size: var(--fs-6); font-weight: var(--fw-normal); }
+.start-aside { display: grid; gap: var(--sp-7); align-content: start; padding-top: var(--sp-4); }
+
+.start-gets { margin: 0; display: grid; gap: var(--sp-5); }
+.start-gets dt { font-weight: var(--fw-semibold); font-size: var(--fs-4); }
+.start-gets dd { margin: var(--sp-1) 0 0; font-size: var(--fs-3); color: var(--text-2); line-height: var(--lh-base); }
+@media (max-width: 900px) {
+  .start { grid-template-columns: minmax(0, 1fr); gap: var(--sp-8); padding: var(--sp-7) var(--sp-6) var(--sp-9); }
+  .start-aside { padding-top: 0; }
+}
+
+.agent-activity { list-style: none; margin: 0; padding: var(--sp-2) var(--sp-4); display: grid; gap: var(--sp-1);
+  max-height: 7.5rem; overflow: auto; border-bottom: 1px solid var(--border); }
+.aa-row { display: flex; align-items: center; gap: var(--sp-4); font-size: var(--fs-2); color: var(--text-2); }
+.aa-time { font-family: var(--font-mono); color: var(--text-3); }
+.aa-tool { font-size: var(--fs-2); }
+.aa-agent { font-family: var(--font-mono); color: var(--text-3); }
+.aa-row.is-refused .aa-what { color: var(--sys-warn); }
+.aa-row.is-waiting .aa-what { color: var(--text-1); font-weight: var(--fw-medium); }
+
+.cell-editor { max-height: 60vh; overflow: auto; }
+
+.plan-warn { color: var(--sys-warn); }
+
+/* -------------------------------------------------------------- markdown */
+/* The document's voice: prose at reading size, headings in the face the math
+   is set in, so a notebook reads as the paper it will be signed as. */
+.markdown { color: var(--text-1); font-size: var(--fs-5); line-height: var(--lh-loose); }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown h1, .markdown h2, .markdown h3 {
+  font-family: var(--font-display);
+  font-weight: var(--fw-normal);
+  line-height: var(--lh-tight);
+  letter-spacing: 0;
+}
+.markdown h1 { font-size: var(--fs-8); margin: var(--sp-6) 0 var(--sp-5); }
+.markdown h2 { font-size: var(--fs-7); margin: var(--sp-7) 0 var(--sp-4); }
+.markdown h3 { font-size: var(--fs-6); margin: var(--sp-6) 0 var(--sp-3); }
+.markdown h4, .markdown h5, .markdown h6 { font-size: var(--fs-4); margin: var(--sp-5) 0 var(--sp-3); }
+.markdown p { margin: var(--sp-4) 0; max-width: 78ch; }
+.markdown ul, .markdown ol { margin: var(--sp-4) 0; padding-left: var(--sp-7); max-width: 78ch; }
+.markdown li { margin: var(--sp-2) 0; }
+.markdown code { background: var(--surface-2); padding: 0 var(--sp-3); border-radius: var(--r-1); }
+.markdown blockquote {
+  margin: var(--sp-4) 0;
+  padding-left: var(--sp-5);
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+}
+
+/* ------------------------------------------------------------------ panels */
+.panel { padding: var(--sp-5); display: grid; gap: var(--sp-5); align-content: start; }
+.panel-sub { font-size: var(--fs-2); color: var(--text-2); margin: 0; max-width: 52ch; }
+
+.panel-h {
+  margin: 0;
+  font-size: var(--fs-1);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-3);
+}
+
+.chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  color: var(--text-2);
+  font-size: var(--fs-1);
+  padding: var(--sp-1) var(--sp-4);
+  cursor: pointer;
+}
+.chip.is-active { border-color: var(--accent); color: var(--accent); }
+.pane-pad { padding: var(--sp-5); }
+
+/* ------------------------------------------------------------------ tools */
+.tool-section { display: grid; gap: var(--sp-3); }
+.tool-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-1); }
+.tool-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: var(--r-1);
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.tool-row:hover { background: var(--surface-2); }
+.tool-row.is-active { background: var(--surface-2); }
+.tool-name { font-family: var(--font-mono); font-size: var(--fs-2); color: var(--text-1); }
+.tool-form {
+  display: grid;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  margin: var(--sp-2) 0 var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-0);
+}
+.tool-desc { margin: 0; font-size: var(--fs-2); color: var(--text-2); }
+.tool-type { font-family: var(--font-mono); font-size: var(--fs-1); color: var(--text-3); }
+.tool-req { font-size: var(--fs-1); color: var(--sys-warn); }
+.tool-form input, .tool-form textarea, .tool-form select { width: 100%; }
+.tool-actions { display: flex; gap: var(--sp-3); }
+.tool-result { display: grid; gap: var(--sp-2); }
+.tool-result-head { font-size: var(--fs-1); color: var(--sys-ok); }
+.tool-json {
+  background: var(--surface-2);
+  border-radius: var(--r-2);
+  padding: var(--sp-4);
+  max-height: 320px;
+  overflow: auto;
+  color: var(--text-1);
+  white-space: pre-wrap;
+}
+
+/* ------------------------------------------------------------ agent pane */
+/* FLEX, not grid, and the reason matters.
+   This was `grid-template-rows: auto auto minmax(0,1fr)` with the terminal as
+   the third child — but the optional callout in the middle is usually absent,
+   so the terminal landed in the second (`auto`) row and sized itself to its own
+   content instead of to the drawer. Dragging the drawer taller then left the
+   terminal at its old height: xterm's fit addon measured a host that had not
+   moved, so cols/rows went stale and the shell kept wrapping at the old width.
+   A flex column with `flex: 1` on the host does not care how many siblings
+   precede it. */
+.agent-pane {
+  background: var(--surface-1);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--sp-3) var(--sp-5) var(--sp-4);
+  gap: var(--sp-3);
+}
+/* off: no terminal host, no standing intro — just the explanation, sized to it */
+.agent-pane.is-notice {
+  grid-template-rows: auto;
+  padding: var(--sp-4) var(--sp-5);
+}
+/* one muted line, and it stays muted: the agent is the user's, not ours */
+.agent-line {
+  margin: 0;
+  font-size: var(--fs-2);
+  color: var(--text-2);
+  max-width: 96ch;
+}
+/* the host takes whatever the drawer has left, so a drag actually changes its
+   size and the ResizeObserver in AgentPane can refit the terminal to it */
+.agent-term { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.agent-term.is-idle { opacity: 0.4; }
+
+/* -------------------------------------------------------------- statusbar */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-5);
+  height: 26px;
+  background: var(--surface-1);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-1);
+  color: var(--text-3);
+}
+.statusbar-doc { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.statusbar-spacer { flex: 1; }
+.statusbar-last { font-family: var(--font-mono); color: var(--text-2); }
+
+/* ---------------------------------------------------------- document facts */
+/* The kind label, the one-line facts and the file editor a document (a study, a file) shares. */
+.ds-kind {
+  margin-left: var(--sp-3);
+  font-family: var(--font-sans);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-normal);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+/* the four facts, in one line: rows, files, bytes, freshness */
+.ds-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  font-size: var(--fs-2);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-hint { margin: 0; font-size: var(--fs-1); color: var(--text-3); max-width: 90ch; }
+.ds-spacer { flex: 1; }
+
+.ds-editor { display: grid; gap: var(--sp-3); }
+.ds-editor-head { display: flex; align-items: center; gap: var(--sp-3); }
+.ds-editor-path { font-family: var(--font-mono); font-size: var(--fs-2); color: var(--text-2); }
+
+.tree-folder.is-open { background: var(--surface-2); color: var(--text-1); }
+
+/* -------------------------------------------------------------------- study */
+/* A study, in the document pane: the same page frame as a notebook and a dataset. */
+.study { display: grid; gap: var(--sp-6); align-content: start; }
+.study-question { margin: 0; font-size: var(--fs-5); line-height: var(--lh-base); color: var(--text-1); max-width: 72ch; }
+.study-section { display: grid; gap: var(--sp-3); min-width: 0; }
+.study-h { margin: 0; font-family: var(--font-display); font-size: var(--fs-6); font-weight: var(--fw-normal); color: var(--text-1); }
+.study-detail { display: grid; gap: var(--sp-6); }
+.study-foot { display: flex; align-items: center; gap: var(--sp-4); }
+.study-interval { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.study-band { color: var(--text-3); }
+/* a look-ahead result is shown, never counted: struck, so nobody reads it as a score */
+.study-interval.is-struck { text-decoration: line-through; color: var(--text-3); }
+/* the states a reader must not miss (look-ahead, retracted, at risk, failed gate, not faithful), drawn alike */
+.study-alarm { font-weight: var(--fw-semibold); border: 1px solid var(--sys-danger); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.study-actor { min-width: 4.5em; justify-content: center; }
+
+/* the tabs: one per area the record has something for */
+.study-tabs { border-bottom: 1px solid var(--border); }
+.study-tab-alarm { color: var(--sys-danger); font-weight: var(--fw-semibold); }
+.study-cell-text { display: inline-block; min-width: 12rem; max-width: 42ch; white-space: normal; overflow-wrap: anywhere; }
+.study-quote { display: block; margin-top: var(--sp-1); color: var(--text-2); font-style: italic; white-space: normal; max-width: 60ch; }
+.study-fields { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); white-space: normal; }
+.study-ids { display: inline-flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); }
+.study-decision { display: inline-flex; align-items: center; gap: var(--sp-2); white-space: nowrap; }
+.study-filter { max-width: 22rem; }
+/* an empty lattice cell is the finding, not a blank: hatched so a gap reads at a glance */
+.study-gap {
+  display: inline-block;
+  padding: 0 var(--sp-3);
+  border: 1px dashed var(--sys-warn);
+  border-radius: var(--r-1);
+  background: var(--sys-warn-bg);
+  color: var(--sys-warn);
+  font-size: var(--fs-1);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* the PRISMA flow: one line per stage, the count aligned */
+.study-flow { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-1); max-width: 60rem; }
+.study-flow-stage {
+  display: grid;
+  grid-template-columns: 12rem 6rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
+  border-left: 2px solid var(--border-strong);
+  font-size: var(--fs-2);
+}
+.study-flow-label { color: var(--text-2); }
+.study-flow-n { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--fw-semibold); color: var(--text-1); }
+.study-flow-detail { color: var(--text-3); }
+
+/* the question tree and a claim's provenance chain: indented, one row per node */
+.study-tree, .study-chain { list-style: none; margin: 0; padding: 0 0 0 var(--sp-6); display: grid; gap: var(--sp-2); border-left: 1px solid var(--border); }
+.study-section > .study-tree, .study-detail > .study-chain { padding-left: 0; border-left: 0; }
+.study-tree-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+.study-chain-item { display: grid; gap: var(--sp-1); }
+
+/* the record log and the amendments: one line per act, a person's set apart */
+.study-log { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-1); }
+.study-log-item {
+  display: grid;
+  grid-template-columns: 11rem auto minmax(6rem, 14rem) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
+  border-left: 2px solid transparent;
+  font-size: var(--fs-2);
+  color: var(--text-2);
+}
+.study-log-item.is-person { border-left-color: var(--accent); background: var(--accent-wash); color: var(--text-1); }
+.study-log-item.is-person .study-log-verb { font-weight: var(--fw-semibold); }
+.study-log-item.is-refused .study-log-outcome { color: var(--sys-warn); }
+.study-log-at { color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.study-log-verb { color: var(--text-1); overflow-wrap: anywhere; }
+.study-log-outcome { min-width: 0; overflow-wrap: anywhere; }
+
+/* the start screen's list of studies */
+.start-studies { margin-top: var(--sp-8); padding-top: var(--sp-6); border-top: 1px solid var(--border); display: grid; gap: var(--sp-3); justify-items: start; }
+.start-study-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); width: 100%; }
+.start-study {
+  display: grid;
+  gap: var(--sp-1);
+  width: 100%;
+  text-align: left;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  color: var(--text-1);
+  font: inherit;
+  cursor: pointer;
+}
+.start-study:hover { border-color: var(--border-strong); }
+.start-study-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); }
+.start-study-name { font-family: var(--font-mono); font-weight: var(--fw-medium); }
+.start-study-q { font-size: var(--fs-2); color: var(--text-2); }
+
+/* ------------------------------------------------------------- narrow ---- */
+/* the tree gives up 50px first */
+@media (max-width: 1199px) {
+  .shell-main { grid-template-columns: minmax(150px, 200px) minmax(0, 1fr); }
+}
+
+/* ------------------------------------------------------------------ views */
+/* The view tabs sit right after the workspace path; the path gives way first. */
+.topbar-views {
+  display: flex;
+  gap: var(--sp-1);
+  margin-left: var(--sp-3);
+  flex-shrink: 0;
+}
+.topbar-view {
+  background: none;
+  border: 0;
+  border-radius: var(--r-2);
+  padding: var(--sp-1) var(--sp-2);
+  min-width: 24px;
+  min-height: 24px;
+  flex-shrink: 0; /* the strip scrolls when it is too long; its labels do not squash into each other */
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: var(--fs-2);
+  cursor: pointer;
+}
+.topbar-view:hover { color: var(--text-1); background: var(--surface-2); }
+.topbar-view.is-active { color: var(--text-1); background: var(--surface-3); box-shadow: inset 0 -2px 0 var(--accent); }
+
+/* what waits on you, on the Agents tab from every screen: the accent, never red */
+.topbar-view-count {
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-1);
+}
+
+.view-main {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-4);
+}
+.view-stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+/* ------------------------------------------------------------------ agents */
+/* A list and a detail: the tree and the inbox on the left, the picked agent's log on the right. */
+.agents { display: grid; gap: var(--sp-5); align-content: start; }
+.agents:not(.is-study) { max-width: 1600px; }
+.agents-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-6); }
+.agents-title { margin: 0; font-family: var(--font-display); font-size: var(--fs-6); font-weight: var(--fw-normal); }
+.agents-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(320px, 2fr);
+  gap: var(--sp-6);
+  align-items: start;
+}
+.agents-main { display: grid; gap: var(--sp-6); min-width: 0; }
+.agents-side {
+  position: sticky;
+  top: 0;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  padding-left: var(--sp-6);
+}
+.agt-summary, .start-agents-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-5);
+  font-size: var(--fs-2);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.agt-pick {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-right: 0;
+  color: var(--text-1);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.agt-pick.is-picked code { color: var(--accent); font-weight: var(--fw-medium); }
+.agt-branch { color: var(--text-3); font-family: var(--font-mono); margin-right: var(--sp-2); align-self: flex-start; }
+.agt-who { display: grid; text-align: left; }
+.agt-role { color: var(--text-3); font-size: var(--fs-1); white-space: nowrap; }
+.agt-states { display: inline-flex; align-items: center; gap: var(--sp-2); white-space: nowrap; }
+.agt-flags { display: inline-flex; flex-wrap: wrap; gap: var(--sp-1); }
+.agt-states .agt-flags { flex-wrap: nowrap; }
+.agt-flag { font-family: var(--font-mono); letter-spacing: 0.02em; }
+.agt-q {
+  display: inline-block;
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.agt-study { margin-right: var(--sp-3); color: var(--text-2); font-size: var(--fs-1); }
+.agt-budget { display: inline-flex; align-items: center; gap: var(--sp-3); white-space: nowrap; }
+.agt-budget-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.agt-bar {
+  display: inline-block;
+  width: 56px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.agt-bar-fill { display: block; height: 100%; background: var(--accent); }
+.agt-bar-fill.is-over { background: var(--sys-warn); }
+.agt-last {
+  display: inline-block;
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--text-2);
+}
+.agt-age { font-family: var(--font-mono); color: var(--text-3); }
+.agt-link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
+.agt-link:hover code { text-decoration: underline; }
+.agt-hint { margin: var(--sp-6) 0; }
+.agt-sub { margin: 0 0 var(--sp-3); font-size: var(--fs-3); font-weight: var(--fw-semibold); }
+.agt-detail { display: grid; gap: var(--sp-5); align-content: start; }
+.agt-detail-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+.agt-detail-head h3 { margin: 0; font-size: var(--fs-4); }
+.agt-controls { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.agt-children { display: inline-flex; flex-wrap: wrap; gap: var(--sp-4); }
+.agt-brief summary { cursor: pointer; font-size: var(--fs-2); color: var(--text-2); }
+.agt-brief pre {
+  margin: var(--sp-3) 0 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: var(--fs-2);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: var(--sp-4);
+}
+.agt-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 480px;
+  overflow: auto;
+  display: grid;
+  gap: var(--sp-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-1);
+}
+.agt-log li { display: grid; grid-template-columns: 5.5rem 7.5rem minmax(0, 1fr); gap: var(--sp-3); color: var(--text-2); }
+.agt-log time { color: var(--text-3); }
+.agt-log-kind { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
+.agt-log-what { overflow-wrap: anywhere; }
+.agt-log li.is-warn .agt-log-kind, .agt-log li.is-warn .agt-log-what { color: var(--sys-warn); }
+.agt-log li.is-danger .agt-log-kind, .agt-log li.is-danger .agt-log-what { color: var(--sys-danger); }
+.agt-log li.is-accent .agt-log-kind { color: var(--accent); }
+.agt-items { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-4); }
+.agt-item {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-2);
+  background: var(--surface-1);
+}
+.agt-item-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); }
+.agt-item-why { margin: 0; font-size: var(--fs-3); max-width: 80ch; }
+.start-agents { display: grid; gap: var(--sp-4); justify-items: start; }
+.start-agents-flagged { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.start-agents-flagged li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+@media (max-width: 1099px) {
+  .agents-grid { grid-template-columns: minmax(0, 1fr); }
+  .agents-side { position: static; border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: var(--sp-5); }
+}
+
+.plan-spend { display: grid; font-family: var(--font-mono); font-size: var(--fs-1); white-space: nowrap; }
+
+/* ------------------------------------------------------------- spec curve */
+.spec-curve { display: block; width: 100%; max-width: 760px; height: auto; }
+.spec-grid { stroke: var(--grid); stroke-width: 1; }
+.spec-tick, .spec-axis { fill: var(--text-3); font-family: var(--font-mono); font-size: var(--fs-1); }
+.spec-ci { stroke: var(--text-3); stroke-width: 1.5; }
+.spec-pt { fill: var(--text-3); }
+.is-newest .spec-ci { stroke: var(--accent); }
+.is-newest .spec-pt { fill: var(--accent); }
+
+/* -------------------------------------------------------------- tools view */
+.tools-view { max-width: 1100px; }
+
+/* ------------------------------------------------------------------ phone */
+/* A phone. The app is desktop-first, but reading a study and answering the inbox has to work here, so nothing
+   may push the page sideways: the tree goes above the document instead of beside it. */
+@media (max-width: 640px) {
+  .topbar-root { display: none; }
+  .topbar-views { flex-shrink: 1; min-width: 0; overflow-x: auto; }
+  /* the views scroll sideways here, which would clip an absolutely placed list: pin it to the viewport */
+  .topbar-more > .ui-menu-list { position: fixed; top: var(--sp-9); left: var(--sp-4); }
+  .shell-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .rail { max-height: 14rem; border-right: none; border-bottom: 1px solid var(--border); }
+  .notebook { padding: var(--sp-4) var(--sp-4) var(--sp-8); }
+  .notebook-head { flex-wrap: wrap; }
+  .notebook-actions { justify-content: flex-start; }
+}

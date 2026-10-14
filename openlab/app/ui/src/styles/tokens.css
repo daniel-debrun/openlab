@@ -1,0 +1,343 @@
+/* ============================================================================
+   tokens.css — the design system's single source of truth.
+
+   THIS IS THE ONLY FILE UNDER src/ PERMITTED TO CONTAIN A HEX LITERAL.
+   tests/test_ui_tokens.py enforces that, plus:
+     - light and dark declare the same token names
+     - the three light bodies (@media prefers / [data-theme=light] / print) match
+     - --vd-* and --sys-* share no hex value
+     - contrast floors on every text + verdict token, in BOTH palettes
+     - |L(--vd-proved) - L(--vd-disproved)| <= 0.08
+
+   That last assertion is the product thesis in executable form. openlab's whole
+   claim is that a verdict is not an opinion: a disproof is as much of a result
+   as a proof. If the two verdict hues drift apart in luminance, one verdict
+   starts reading louder than the other and the interface quietly teaches that a
+   disproof is a failure. The pair is matched to 0.0000 (dark) / 0.0001 (light)
+   at equal contrast — measured, not eyeballed.
+
+   TWO COLOUR FAMILIES, AND THEY NEVER MIX
+     --sys-*   the machine.  ok = a tool finished. danger = it crashed.
+     --vd-*    the evidence. proved / supported / disproved / not proved / …
+
+   Saturated red means exactly one thing here: something broke. That is why
+   `disproved` is violet — it reads as an archival stamp, authoritative by
+   construction — and never red. Teal (not green) is `proved`, because green is
+   spent on --sys-ok. Colour is always the THIRD channel: every verdict is
+   glyph + word + hue, which is what keeps teal-vs-violet legible under
+   deuteranopia, where the two hues converge.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   Invariant scales — identical in every theme.
+   ------------------------------------------------------------------------- */
+:root {
+  /* space — 2px granularity at the low end on purpose. A notebook wants density;
+     rounding every padding up to a pure 4px grid costs two cells per screen. */
+  --sp-0: 0;
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 12px;
+  --sp-6: 16px;
+  --sp-7: 24px;
+  --sp-8: 32px;
+  --sp-9: 48px;
+
+  /* type — three faces, all shipped in the bundle (main.tsx imports the
+     latin subsets); nothing here may reach the network.
+       sans     the chrome: labels, buttons, panels
+       mono     the data: numbers, names, paths, code, the terminal
+       display  the document: prose headings and the start screen, set in the
+                face the math is already set in, so a notebook reads like the
+                paper it will be signed as. Roman only, never under 20px. */
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-display: KaTeX_Main, "Latin Modern Roman", "Computer Modern", Georgia, serif;
+  --fs-1: 11px;
+  --fs-2: 12px;
+  --fs-3: 13px;
+  --fs-4: 14px;
+  --fs-5: 16px;
+  --fs-6: 20px;
+  --fs-7: 26px;
+  --fs-8: 32px;
+  --lh-tight: 1.25;
+  --lh-base: 1.5;
+  --lh-loose: 1.7;
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  --r-1: 3px;
+  --r-2: 5px;
+  --r-3: 8px;
+  --r-4: 12px;
+  --r-full: 999px;
+
+  /* motion — nothing over 150ms, and never on data */
+  --mo-fast: 80ms;
+  --mo-base: 120ms;
+  --mo-slow: 150ms;
+  --mo-ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* z — one scale, so a dropdown can never paint over a modal backdrop */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-strip: 20;
+  --z-dropdown: 40;
+  --z-overlay: 60;
+  --z-modal: 61;
+  --z-palette: 70;
+  --z-toast: 80;
+  --z-tooltip: 90;
+}
+
+/* ---------------------------------------------------------------------------
+   Palette — DARK (the default).
+   Both selectors carry it so `[data-theme="dark"]` (0,2,0) can beat the light
+   media query below on a light-OS machine.
+   ------------------------------------------------------------------------- */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-0: #0e1116;
+  --surface-1: #14181f;
+  --surface-2: #1b212a;
+  --surface-3: #232b36;
+  --border: #2a323d;
+  --border-strong: #3a4552;
+  --grid: #212934;
+
+  --text-1: #dfe5ee;
+  --text-2: #97a2b4;
+  --text-3: #7c8a9d;
+
+  --accent: #5aa9e6;
+  --accent-hover: #7bbaeb;
+  --accent-fg: #08121c;
+
+  /* SYSTEM semantics — the machine. sys-ok is a yellower green (133°) than
+     any verdict hue, so the two never read as the same signal. */
+  --sys-ok: #37b853;
+  --sys-danger: #e5645f;
+  --sys-warn: #d9a13c;
+  --sys-info: #5aa9e6;
+
+  /* VERDICT semantics — the evidence. No value here appears in --sys-*.
+     proved and disproved are luminance-matched: a disproof is a result. */
+  --vd-proved: #35b3b5;
+  --vd-disproved: #b28fff;
+  --vd-supported: #6fbf8e;
+  --vd-unproved: #8a93a4;
+  --vd-inconclusive: #7e9ec4;
+  --vd-value: #aab6c8;
+
+  /* charts — their own family, so retuning "alert red" never silently
+     retunes a chart series */
+  --ch-1: #3987e5;
+  --ch-2: #d95926;
+  --ch-3: #199e70;
+  --ch-4: #c98500;
+  --ch-5: #d55181;
+  --ch-6: #008300;
+  --ch-7: #9085e9;
+  --ch-8: #e66767;
+  --ch-pos: #3987e5;
+  --ch-neg: #e66767;
+
+  /* a figure that brings its own style must NOT be inverted; it gets a white
+     mat so it reads as a printed figure on a desk rather than a bug */
+  --figure-bg: #ffffff;
+  --scrim: #000000;
+
+  --el-1: 0 1px 2px rgb(0 0 0 / 0.3);
+  --el-2: 0 8px 24px -8px rgb(0 0 0 / 0.5);
+  --el-3: 0 18px 56px -12px rgb(0 0 0 / 0.6);
+}
+
+/* ---------------------------------------------------------------------------
+   Palette — LIGHT. Authored deliberately, not inverted: the verdict hues darken
+   to hold contrast on white and are re-matched to each other there.
+
+   Three selectors, byte-identical bodies (a test pins that):
+     1. the OS preference, guarded so an explicit dark choice still wins
+     2. the explicit light choice, last so it beats the media query
+     3. print, unconditional — a notebook gets printed, and a dark printout
+        wastes toner
+   Duplication a test owns is not debt.
+   ------------------------------------------------------------------------- */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    /* @@LIGHT@@ */
+    color-scheme: light;
+    --surface-0: #ffffff;
+    --surface-1: #fbfcfd;
+    --surface-2: #f2f4f7;
+    --surface-3: #e8ebf0;
+    --border: #d7dce4;
+    --border-strong: #b9c1cd;
+    --grid: #e6eaf0;
+    --text-1: #10151c;
+    --text-2: #55606f;
+    --text-3: #666f7d;
+    --accent: #1668b8;
+    --accent-hover: #12558f;
+    --accent-fg: #ffffff;
+    --sys-ok: #197f46;
+    --sys-danger: #b8322c;
+    --sys-warn: #8a5a06;
+    --sys-info: #1668b8;
+    --vd-proved: #0b7365;
+    --vd-disproved: #7c4dbd;
+    --vd-supported: #2f7a52;
+    --vd-unproved: #5d6878;
+    --vd-inconclusive: #3f6285;
+    --vd-value: #49525f;
+    --ch-1: #2a78d6;
+    --ch-2: #eb6834;
+    --ch-3: #1baf7a;
+    --ch-4: #eda100;
+    --ch-5: #e87ba4;
+    --ch-6: #008300;
+    --ch-7: #4a3aa7;
+    --ch-8: #e34948;
+    --ch-pos: #2a78d6;
+    --ch-neg: #e34948;
+    --figure-bg: #ffffff;
+    --scrim: #10151c;
+    --el-1: 0 1px 2px rgb(16 21 28 / 0.07);
+    --el-2: 0 8px 24px -8px rgb(16 21 28 / 0.14);
+    --el-3: 0 18px 56px -12px rgb(16 21 28 / 0.18);
+    /* @@/LIGHT@@ */
+  }
+}
+
+:root[data-theme="light"] {
+  /* @@LIGHT@@ */
+  color-scheme: light;
+  --surface-0: #ffffff;
+  --surface-1: #fbfcfd;
+  --surface-2: #f2f4f7;
+  --surface-3: #e8ebf0;
+  --border: #d7dce4;
+  --border-strong: #b9c1cd;
+  --grid: #e6eaf0;
+  --text-1: #10151c;
+  --text-2: #55606f;
+  --text-3: #666f7d;
+  --accent: #1668b8;
+  --accent-hover: #12558f;
+  --accent-fg: #ffffff;
+  --sys-ok: #197f46;
+  --sys-danger: #b8322c;
+  --sys-warn: #8a5a06;
+  --sys-info: #1668b8;
+  --vd-proved: #0b7365;
+  --vd-disproved: #7c4dbd;
+  --vd-supported: #2f7a52;
+  --vd-unproved: #5d6878;
+  --vd-inconclusive: #3f6285;
+  --vd-value: #49525f;
+  --ch-1: #2a78d6;
+  --ch-2: #eb6834;
+  --ch-3: #1baf7a;
+  --ch-4: #eda100;
+  --ch-5: #e87ba4;
+  --ch-6: #008300;
+  --ch-7: #4a3aa7;
+  --ch-8: #e34948;
+  --ch-pos: #2a78d6;
+  --ch-neg: #e34948;
+  --figure-bg: #ffffff;
+  --scrim: #10151c;
+  --el-1: 0 1px 2px rgb(16 21 28 / 0.07);
+  --el-2: 0 8px 24px -8px rgb(16 21 28 / 0.14);
+  --el-3: 0 18px 56px -12px rgb(16 21 28 / 0.18);
+  /* @@/LIGHT@@ */
+}
+
+/* `:root[data-theme]` is (0,2,0) and comes last, so print beats an explicit
+   dark choice as well as the default. */
+@media print {
+  :root,
+  :root[data-theme] {
+    /* @@LIGHT@@ */
+    color-scheme: light;
+    --surface-0: #ffffff;
+    --surface-1: #fbfcfd;
+    --surface-2: #f2f4f7;
+    --surface-3: #e8ebf0;
+    --border: #d7dce4;
+    --border-strong: #b9c1cd;
+    --grid: #e6eaf0;
+    --text-1: #10151c;
+    --text-2: #55606f;
+    --text-3: #666f7d;
+    --accent: #1668b8;
+    --accent-hover: #12558f;
+    --accent-fg: #ffffff;
+    --sys-ok: #197f46;
+    --sys-danger: #b8322c;
+    --sys-warn: #8a5a06;
+    --sys-info: #1668b8;
+    --vd-proved: #0b7365;
+    --vd-disproved: #7c4dbd;
+    --vd-supported: #2f7a52;
+    --vd-unproved: #5d6878;
+    --vd-inconclusive: #3f6285;
+    --vd-value: #49525f;
+    --ch-1: #2a78d6;
+    --ch-2: #eb6834;
+    --ch-3: #1baf7a;
+    --ch-4: #eda100;
+    --ch-5: #e87ba4;
+    --ch-6: #008300;
+    --ch-7: #4a3aa7;
+    --ch-8: #e34948;
+    --ch-pos: #2a78d6;
+    --ch-neg: #e34948;
+    --figure-bg: #ffffff;
+    --scrim: #10151c;
+    --el-1: 0 1px 2px rgb(16 21 28 / 0.07);
+    --el-2: 0 8px 24px -8px rgb(16 21 28 / 0.14);
+    --el-3: 0 18px 56px -12px rgb(16 21 28 / 0.18);
+    /* @@/LIGHT@@ */
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Derived values. Every tint is a color-mix of a token rather than a hand-mixed
+   rgba(), so changing a hue propagates to its tints for free and the token
+   count stays small.
+
+   --vd-unproved-hatch is the load-bearing one: "not proved" is the ABSENCE of
+   evidence, so it is encoded as the absence of chroma plus a texture. A hatch
+   survives greyscale printing and every form of colour blindness, which a
+   further hue would not, and it cannot be mistaken for a solid amber warning.
+   `not proved` is not a disproof, and this is how the interface says so.
+   ------------------------------------------------------------------------- */
+:root {
+  --accent-ring: color-mix(in oklab, var(--accent) 55%, transparent);
+  --accent-wash: color-mix(in oklab, var(--accent) 8%, transparent);
+  --scrim-wash: color-mix(in srgb, var(--scrim) 55%, transparent);
+
+  --vd-proved-bg: color-mix(in oklab, var(--vd-proved) 12%, transparent);
+  --vd-disproved-bg: color-mix(in oklab, var(--vd-disproved) 12%, transparent);
+  --vd-supported-bg: color-mix(in oklab, var(--vd-supported) 12%, transparent);
+  --vd-inconclusive-bg: color-mix(in oklab, var(--vd-inconclusive) 12%, transparent);
+  --vd-value-bg: color-mix(in oklab, var(--vd-value) 12%, transparent);
+  --vd-unproved-bg: transparent;
+  --vd-unproved-hatch: repeating-linear-gradient(
+    135deg,
+    transparent 0 3px,
+    color-mix(in oklab, var(--vd-unproved) 22%, transparent) 3px 6px
+  );
+
+  --sys-ok-bg: color-mix(in oklab, var(--sys-ok) 12%, transparent);
+  --sys-danger-bg: color-mix(in oklab, var(--sys-danger) 12%, transparent);
+  --sys-warn-bg: color-mix(in oklab, var(--sys-warn) 12%, transparent);
+  --sys-info-bg: color-mix(in oklab, var(--sys-info) 12%, transparent);
+}

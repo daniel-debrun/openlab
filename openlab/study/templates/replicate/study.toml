@@ -1,0 +1,37 @@
+[study]
+name = "$name"
+question = "Do the results of $key hold when rebuilt?"
+mode = "$mode"
+
+# The target paper, pinned by `openlab study replicate`: this review finds it by its id and nothing else.
+[review]
+question = "What does $key report, and under which protocol?"
+scope = "The target paper only"
+sources = ["$index"]
+queries = ["$ident"]
+include = [{id = "T", text = "the paper this study replicates"}]
+exclude = [{id = "X", text = "any other work"}]
+citation_hops = 0
+n = 1
+coverage_floor = {queries_per_source = 1, hops = 0}
+
+[review.extract]                # what evidence reads from the paper
+method = "text"
+$metric = "number"
+setting = {type = "text", free = true}      # the column or condition a value belongs to, e.g. "training 2015"
+
+# The experiment: write the paper's protocol here (README.md, step 3). Until the first run an agent may amend all
+# of it; from then on split, budget, sandbox, audit, the primary metric and known_at need a person.
+$experiment
+[evaluate]
+metrics = ["$metric"]           # the first one is primary
+baselines = [$baselines]        # every method of model.py but Model
+# level = 0.9                   # the interval a lower/upper prediction is at (coverage, interval_width read it)
+
+[budget]
+trials = 20
+holdout_looks = 1
+
+[sandbox]
+# threads = 1            # the model's thread pools (polars, BLAS); more is allowed and recorded with each run
+network = false

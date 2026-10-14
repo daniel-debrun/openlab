@@ -1,0 +1,8 @@
+.git
+.venv
+**/__pycache__
+**/*.db
+bench/results
+node_modules
+todo
+plans

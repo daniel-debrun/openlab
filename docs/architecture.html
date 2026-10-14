@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Openlab: architecture, flows and inner workings</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root { --ink:#1d232b; --muted:#5b6672; --line:#d8dee6; --bg:#fbfcfd; --accent:#2f6fde; --chip:#eef3fb; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color:var(--ink); background:var(--bg); }
+  header { padding:28px 40px 18px; border-bottom:1px solid var(--line); background:#fff; }
+  header h1 { margin:0 0 4px; font-size:26px; }
+  header p { margin:0; color:var(--muted); }
+  nav { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--line); padding:8px 40px; display:flex; gap:16px; flex-wrap:wrap; font-size:13.5px; }
+  nav a { color:var(--accent); text-decoration:none; }
+  main { max-width:1180px; margin:0 auto; padding:10px 40px 60px; }
+  h2 { margin:38px 0 8px; font-size:21px; border-bottom:2px solid var(--line); padding-bottom:4px; }
+  h3 { margin:24px 0 6px; font-size:16.5px; }
+  .lead { color:var(--muted); margin-top:0; }
+  .diagram { background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; margin:12px 0 6px; overflow-x:auto; }
+  .note { font-size:13px; color:var(--muted); }
+  table { border-collapse:collapse; width:100%; margin:10px 0 4px; background:#fff; font-size:13.5px; }
+  th, td { border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:#f2f5f9; font-weight:600; }
+  code { font:12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:var(--chip); padding:1px 4px; border-radius:3px; }
+  .chips code { display:inline-block; margin:2px 2px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(330px, 1fr)); gap:14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .card h4 { margin:0 0 6px; font-size:14.5px; }
+  .card p, .card ul { margin:4px 0; font-size:13.5px; }
+  .card ul { padding-left:18px; }
+  .tag { display:inline-block; font-size:11px; padding:1px 6px; border-radius:10px; background:#e7f0e4; color:#2e6b26; margin-left:6px; vertical-align:middle; }
+  .tag.p { background:#fbe9e7; color:#9a3412; }
+  .stack { margin:12px 0; }
+  .layer { background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .lname { font-weight:600; font-size:13.5px; margin-bottom:8px; color:#334; }
+  .boxes { display:flex; flex-wrap:wrap; gap:8px; }
+  .box { flex:1 1 150px; border:1px solid #c9d3e0; border-radius:6px; padding:6px 8px; background:#f6f9fd; font-size:12.5px; }
+  .box b { display:block; font-size:13px; }
+  .box span { color:var(--muted); }
+  .box.wide { flex-basis:100%; }
+  .box.db { background:#fbf7ee; border-color:#e3d6b5; }
+  .l1 { border-left:4px solid #8a63d2; } .l2 { border-left:4px solid #2f6fde; } .l3 { border-left:4px solid #0f8b8d; }
+  .l4, .l4b { border-left:4px solid #3c9d4d; } .l5 { border-left:4px solid #c08a1c; }
+  .split { display:grid; grid-template-columns:3fr 2fr; gap:10px; }
+  .arrow { text-align:center; color:var(--muted); font-size:13px; padding:4px 0; }
+  @media (max-width: 800px) { .split { grid-template-columns:1fr; } }
+  footer { color:var(--muted); font-size:12.5px; margin-top:40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Openlab</h1>
+  <p>A research control plane: the plan is fixed before the first run, every trial is counted, the data a model sees is
+  only what was known at the time, the holdout is a person's signed act, and every number is computed from a
+  hash-chained record. Agents (Claude Code, Codex) do the work; a person supervises.
+  Map as of 2026-10-11, branch <code>research-framework</code>.</p>
+</header>
+<nav>
+  <a href="#overview">Overview</a><a href="#arch">Architecture</a><a href="#run">Study run</a>
+  <a href="#replicate">Replicate a paper</a><a href="#propose">Research from a prompt</a>
+  <a href="#agents">Agent supervision</a><a href="#forward">Forward &amp; holdout</a>
+  <a href="#record">The record</a><a href="#guarantees">Guarantees</a><a href="#inventory">Inventory</a>
+  <a href="#modules">Modules</a><a href="#session">This session</a>
+</nav>
+<main>
+
+<section id="overview">
+<h2>Overview</h2>
+<p class="lead">Three ways in, one core. Every action is a tool behind one dispatch, so the CLI, the web app, the MCP
+server (what an agent calls) and the hooks all enforce the same rules.</p>
+<div class="grid">
+  <div class="card"><h4>1. Paper to verified code <span class="tag">openlab replicate</span></h4>
+    <p>An agent drafts a replication plan from the paper (methods, claims quoted on their pages, metric, tolerance),
+    a person approves it signed, a builder agent rebuilds it in a sandbox, and openlab computes each verdict.</p></div>
+  <div class="card"><h4>2. Research from a prompt <span class="tag">openlab propose</span></h4>
+    <p>A paragraph becomes a proposal: hypotheses with falsifiers, branches with budgets, stop rules and kill
+    criteria. A person approves it; a lead agent runs it as a tree of agents.</p></div>
+  <div class="card"><h4>3. A literature review <span class="tag">openlab study (review)</span></h4>
+    <p>A sealed protocol: discovery across OpenAlex/arXiv/Crossref, screening, evidence quoted from full text and
+    checked on its page, a PRISMA flow, contradiction searches.</p></div>
+  <div class="card"><h4>Supervising agents <span class="tag">openlab watch / inbox</span></h4>
+    <p>Spawned agents run under a supervisor with $ / minute / turn budgets; hooks see every tool call; a person
+    pauses, directs (<code>agent tell</code>), and decides inbox requests with a passphrase-protected key.</p></div>
+</div>
+</section>
+
+<section id="arch">
+<h2>Architecture</h2>
+<p class="lead">Layers from the person and their agents down to storage: every interface goes through one dispatch, so the same rules hold whichever way a call comes in.</p>
+<div class="stack">
+  <div class="layer l1"><div class="lname">1. People and their agents</div><div class="boxes">
+    <div class="box"><b>Person</b><span>terminal, web UI, passphrase-protected key</span></div>
+    <div class="box"><b>Research agents</b><span>claude -p / codex exec, spawned by openlab or the person's own session</span></div>
+  </div></div>
+  <div class="arrow">&#8595; commands, tool calls &nbsp; &#8901; &nbsp; hooks see every agent tool call</div>
+  <div class="layer l2"><div class="lname">2. Interfaces: skins over one dispatch</div><div class="boxes">
+    <div class="box"><b>openlab CLI</b><span>18 commands</span></div>
+    <div class="box"><b>openlab app</b><span>web UI + tool API</span></div>
+    <div class="box"><b>MCP server</b><span>openlab-mcp: what an agent calls</span></div>
+    <div class="box"><b>openlab tool / guide</b><span>the same tools from a shell</span></div>
+    <div class="box"><b>Claude Code hooks</b><span>PreToolUse / PostToolUse: refuse, direct, attribute</span></div>
+  </div></div>
+  <div class="arrow">&#8595;</div>
+  <div class="layer l3"><div class="lname">3. One dispatch: app.registry</div><div class="boxes">
+    <div class="box wide"><b>91 tools</b><span>study 64 &middot; research 16 &middot; workspace 7 &middot; meta 4; metered; every refusal carries error, meaning and fix</span></div>
+  </div></div>
+  <div class="arrow">&#8595;</div>
+  <div class="split">
+    <div class="layer l4"><div class="lname">4a. Study core: openlab/study</div><div class="boxes">
+      <div class="box"><b>spec</b><span>study.toml: seal, amend, protected fields</span></div>
+      <div class="box"><b>data + view</b><span>recipes, providers, snapshots; known_at views</span></div>
+      <div class="box"><b>runner + sandbox</b><span>walk / folds, truncation audit, bwrap child</span></div>
+      <div class="box"><b>metrics + inference</b><span>intervals, paired tests, groups, policy</span></div>
+      <div class="box"><b>schema</b><span>38 node kinds, computed fields and verdicts</span></div>
+      <div class="box"><b>flows</b><span>replicate, propose, review, claims, frontier, forward, paper</span></div>
+      <div class="box"><b>engine</b><span>equation language: derived claims, equation gate</span></div>
+    </div></div>
+    <div class="layer l4b"><div class="lname">4b. Agent control plane: openlab/agents</div><div class="boxes">
+      <div class="box"><b>spawn + supervisor</b><span>$ / minutes / turns, pause, stop, reaper</span></div>
+      <div class="box"><b>hooks</b><span>bypass refusals, signed directions</span></div>
+      <div class="box"><b>inbox</b><span>requests a person decides; resume on approval</span></div>
+      <div class="box"><b>person key</b><span>Ed25519, passphrase, workspace pin</span></div>
+      <div class="box"><b>view / watch</b><span>states and flags; notify</span></div>
+    </div></div>
+  </div>
+  <div class="arrow">&#8595; writes</div>
+  <div class="layer l5"><div class="lname">5. Storage</div><div class="boxes">
+    <div class="box db"><b>.openlab/record.db</b><span>append-only, hash-chained nodes + edges; content store of blobs</span></div>
+    <div class="box db"><b>.openlab/control.db</b><span>agents, events, inbox, leases (SQLite WAL)</span></div>
+    <div class="box db"><b>vault</b><span>holdout labels, outside the study</span></div>
+    <div class="box db"><b>MLflow</b><span>each run's model, packed in the sandbox</span></div>
+    <div class="box db"><b>~/.openlab</b><span>person key + pin</span></div>
+  </div></div>
+</div>
+</section>
+
+<section id="run">
+<h2>A study run, end to end</h2>
+<p class="lead"><code>openlab study run FOLDER</code>: from the sealed spec to a recorded, audited result. Every step that
+can refuse does so with an error, its meaning, and the fix; nothing is stored and flagged later.</p>
+<div class="diagram"><pre class="mermaid">
+flowchart TD
+  T["study.toml + model.py + recipes"] --> M["materialise<br/>recipe / provider / snapshot -> parquet<br/>dataset node: sha, card, recipe_sha"]
+  M --> S{"first run?"}
+  S -- yes --> SEAL["seal: plan node<br/>(study.toml frozen)"]
+  S -- no --> CHK{"study.toml edited<br/>since the seal?"}
+  CHK -- "yes, not amended" --> REFUSE1["refused: amend first<br/>(protected fields need a person)"]
+  CHK -- no --> KEY
+  SEAL --> KEY["fingerprint -> run key<br/>hash of spec, every code file, data shas,<br/>packages imported"]
+  KEY --> CACHE{"same key<br/>recorded?"}
+  CACHE -- yes --> FREE["cached: no new trial"]
+  CACHE -- no --> BUD{"trial budget left?<br/>ledger: same data elsewhere?"}
+  BUD -- no --> REFUSE2["refused: budget spent /<br/>continues or fresh (a person decides)"]
+  BUD -- yes --> STAGE["stage a snapshot of code + data<br/>(research rows only)"]
+  STAGE --> MODE{"mode"}
+  MODE -- temporal --> WALK["walk over decisions t<br/>view(t): rows with known_at &lt;= t<br/>features(view,t), label(view,t+h)<br/>fit / refit / update, predict, act()"]
+  MODE -- static --> FOLDS["folds / insample / holdout carve<br/>fit on train, predict valid"]
+  WALK --> AUDIT["truncation audit<br/>replay sampled steps in fresh processes<br/>holding only the past"]
+  FOLDS --> SEP["separated (static)<br/>or in-sample, marked"]
+  AUDIT --> EVAL
+  SEP --> EVAL["evaluate<br/>metrics with intervals (bootstrap / block)<br/>baselines, paired differences,<br/>groups (by key), policy (act)"]
+  EVAL --> REC["record: trial, run, result nodes<br/>model to MLflow, predictions as blob"]
+  REC --> USE["claims / fidelity / replication<br/>verdicts computed from the record"]
+  classDef bad fill:#fdecea,stroke:#d9534f;
+  class REFUSE1,REFUSE2 bad;
+</pre></div>
+<p class="note">The child process is the only place the study's own code runs (bwrap: no network, the record and raw
+data masked). Wide distributions are reduced step by step on disk; memory gates the audit's replays.</p>
+</section>
+
+<section id="replicate">
+<h2>Replicate a paper: <code>openlab replicate PAPER</code></h2>
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+  ID["arXiv id / DOI / PDF"] --> FETCH["fetch: paper.pdf, pages.txt<br/>(pinned)"]
+  FETCH --> PLAN["planner agent drafts replication.toml<br/>methods (baseline / proposed), claims quoted<br/>on their pages (+ table headers), metric,<br/>justified tolerance, data, budget"]
+  PLAN --> LINT{"lint<br/>every quote on its page,<br/>number under its column,<br/>budget within the cap"}
+  LINT -- problems --> PLAN
+  LINT -- clean --> APPROVE["person approves (signed)<br/>study made: target + tolerance fixed,<br/>evidence nodes for every paper number"]
+  APPROVE --> BUILD["builder agent (sandboxed)<br/>methods/*.py, model.py, recipes,<br/>runs, one per seed"]
+  BUILD --> FID["fidelity: each baseline rebuilt<br/>within tolerance of the paper's number"]
+  FID --> REPL["replication: the proposed method's claim<br/>replicated / weaker / not_replicated /<br/>inconclusive (gated by fidelities)"]
+  REPL --> REPORT["report: README.md + results/<br/>verdicts from the record"]
+  BUILD -. "needs a person" .-> INBOX["inbox request<br/>(approval resumes the build)"]
+  INBOX -.-> BUILD
+</pre></div>
+<div class="grid">
+  <div class="card"><h4>How a verdict is computed</h4><ul>
+    <li><b>Fidelity</b>: |ours - paper| &lt;= tolerance (the target's, or up to max with a justification).</li>
+    <li><b>Replication</b>: our interval vs the paper's value and the reference (the best gating baseline).
+      Improvement claims keep the side of the reference; a method that trails its baseline is a level (fixed this
+      session).</li>
+    <li><b>Several runs</b> (seeds, datasets): the mean; seeds add t * sd / sqrt(n) to the interval.</li>
+    <li>Inconclusive while any gating fidelity fails: a bad rebuild cannot fail the paper.</li>
+  </ul></div>
+  <div class="card"><h4>What the person signs</h4><ul>
+    <li>The plan (sha); a changed plan is approved again, keeping the primary method and the fixed fields.</li>
+    <li>A person-amended metrics.py counts as approved (no second approval).</li>
+    <li>Inbox requests: amendments (with the fields they set), holdout looks, budgets.</li>
+  </ul></div>
+</div>
+</section>
+
+<section id="propose">
+<h2>Research from a prompt: <code>openlab propose</code></h2>
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+  PR["prompt.txt"] --> NEW["propose new<br/>planner agent drafts proposal.toml"]
+  NEW --> PL{"lint: a hypothesis needs a falsifier,<br/>a branch a budget, stop rule, kill criterion"}
+  PL -- problems --> NEW
+  PL -- clean --> AP["person approves (signed)<br/>study.toml written + sealed,<br/>question tree recorded,<br/>same-data check: continues or fresh"]
+  AP --> EX["execute: lead agent"]
+  EX --> B1["branch agent b1<br/>branches/b1/model.py"]
+  EX --> B2["branch agent b2"]
+  B1 & B2 --> DE["dead ends recorded:<br/>siblings see them before starting"]
+  B1 & B2 --> ST["status: spend, trials, hypotheses<br/>tested / killed / untouched"]
+  ST -. "stopped on a person's decision" .-> RES["execute --resume<br/>(or the approval resumes it)"]
+</pre></div>
+</section>
+
+<section id="agents">
+<h2>Agent supervision</h2>
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  participant Person
+  participant CLI as openlab CLI / watch
+  participant Sup as supervisor
+  participant Agent as agent (claude -p)
+  participant Hooks as hooks
+  participant MCP as MCP tools
+  participant Store as control.db
+  Person->>CLI: agent spawn / replicate build
+  CLI->>Store: register agent, budget
+  CLI->>Sup: detached supervisor
+  Sup->>Agent: start with brief, MCP config, settings
+  loop every tool call
+    Agent->>Hooks: PreToolUse
+    Hooks->>Store: pause? direction to deliver?
+    Hooks-->>Agent: refuse (bypass, protected write)<br/>or allow + direction as context
+    Agent->>MCP: openlab tool (study_run, agent_request, ...)
+    MCP->>Store: event (attributed)
+  end
+  Sup->>Store: budget check ($, minutes, turns), reaper
+  Agent->>MCP: agent_request (needs a person)
+  MCP->>Store: inbox item + notify command
+  Person->>CLI: inbox approve (passphrase, signed)
+  CLI->>Store: decision, act performed as the person
+  CLI->>Sup: resume the ended requester's work
+  Person->>CLI: agent tell ID "direction" (signed with --person)
+  Sup->>Store: end event + notify
+</pre></div>
+<div class="grid">
+  <div class="card"><h4>What hooks refuse</h4><ul>
+    <li>Writes into <code>.openlab/</code>, the vault, the person key, <code>openlab.toml</code>.</li>
+    <li>Person acts from an agent (holdout looks, protected amendments), in any wrapper.</li>
+    <li>Edits to sealed study.toml without an amendment; native sub-agents when disallowed.</li>
+  </ul></div>
+  <div class="card"><h4>What watch flags</h4><ul>
+    <li>States: working, idle, waiting, stuck, paused, done / failed / lost.</li>
+    <li>RUN (a study run in progress, with progress), LOOP (the same refusal repeated), over budget,
+      waiting on the inbox, bypass attempts.</li>
+  </ul></div>
+  <div class="card"><h4>Stepping away</h4><ul>
+    <li><code>[agents] notify</code> in openlab.toml runs on a request and on an agent's end.</li>
+    <li><code>openlab inbox wait</code> blocks until something needs the person.</li>
+    <li>Approving an ended requester's item resumes its work (<code>--no-resume</code> declines).</li>
+  </ul></div>
+</div>
+</section>
+
+<section id="forward">
+<h2>Holdout and forward runs</h2>
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+  subgraph Holdout
+    H1["person: openlab study holdout --reason<br/>(signed look node, numbered,<br/>bound to code / data / spec hashes)"] --> H2["holdout run under the look<br/>(budget.holdout_looks)"] --> H3["trust level: measured"]
+  end
+  subgraph Forward
+    F1["study forecast<br/>(refresh data, latest decision t,<br/>pinned model, sandboxed)"] --> F2{"gate<br/>SQL predicates"} --> F3["forecasts/&lt;t&gt;.csv<br/>+ .sig.json (signed)"]
+    F3 --> F4["study fill<br/>outcome once the label is known"]
+    F5["schedule (crontab)"] -.-> F1
+    F6["monitor: literature watch,<br/>retractions, fills"] -.-> F4
+  end
+</pre></div>
+</section>
+
+<section id="record">
+<h2>The record</h2>
+<p class="lead"><code>.openlab/record.db</code>: append-only SQLite; each node is hashed over its body, its links and its
+actor, chained to the previous head. Person nodes carry an Ed25519 signature. <code>openlab study verify</code>
+recomputes the chain and every signature against the workspace pin.</p>
+<table>
+<tr><th>Group</th><th>Node kinds (38)</th></tr>
+<tr><td>Plan and data</td><td class="chips"><code>plan</code> <code>amendment</code> <code>dataset</code> <code>proposal</code> <code>person_key</code> <code>action</code> <code>agent</code></td></tr>
+<tr><td>Runs</td><td class="chips"><code>trial</code> <code>run</code> <code>result</code> <code>model</code> <code>look</code> <code>reproduction</code> <code>forecast</code> <code>outcome</code></td></tr>
+<tr><td>Organising the research</td><td class="chips"><code>question</code> <code>hypothesis</code> <code>claim</code> <code>test</code> <code>assumption</code> <code>break</code> <code>dead_end</code> <code>approval</code></td></tr>
+<tr><td>Literature</td><td class="chips"><code>query</code> <code>source</code> <code>document</code> <code>screen</code> <code>evidence</code> <code>comparison</code> <code>contra_search</code> <code>coverage</code> <code>recall</code> <code>retraction</code> <code>watch</code></td></tr>
+<tr><td>Replication and paper</td><td class="chips"><code>target</code> <code>fidelity</code> <code>replication</code> <code>paper</code></td></tr>
+</table>
+<p class="note">Computed fields (verdicts, intervals, "selected from N trials") are recomputed by the schema when a node
+is written; a typed value that disagrees is refused.</p>
+</section>
+
+<section id="guarantees">
+<h2>Guarantees and what enforces them</h2>
+<table>
+<tr><th>Guarantee</th><th>Mechanism</th></tr>
+<tr><td>The plan comes first</td><td>The first run seals study.toml; later edits stop the next run until amended; protected fields (split, budget, sandbox, audit, primary metric, known_at, metrics, ...) need a signed person amendment.</td></tr>
+<tr><td>Features cannot see the future</td><td>Views hold only rows with <code>known_at &lt;= t</code>; the truncation audit replays sampled steps in fresh processes holding only the past; a claim cannot rest on an unclean audit.</td></tr>
+<tr><td>Research never loads holdout rows</td><td>The runner stages research rows only; static holdout labels live in the vault outside the study; the sandbox masks <code>.openlab/</code> and <code>data/</code>.</td></tr>
+<tr><td>Every trial is counted</td><td>A run's key hashes code, data, spec and packages; identical keys are cached and free; past the budget a run is refused; a study on the same data continues its count or a person declares it fresh.</td></tr>
+<tr><td>Only a person looks at the holdout</td><td>A look is a signed person node bound to the hashes; hooks refuse an agent's attempt in any wrapper.</td></tr>
+<tr><td>Numbers are computed, not typed</td><td>Verdicts, levels, intervals and selection notes are derived from what they rest on.</td></tr>
+<tr><td>Evidence is where it says</td><td>A quote must be on its page and contain its numbers; table claims must sit under their column header (multi-level headers aligned by position).</td></tr>
+<tr><td>The paper says what the record says</td><td>The paper build refuses unbound numbers, "significant" without a rejecting test, stale bindings, and equations that disagree with their functions.</td></tr>
+<tr><td>The record is not quietly edited</td><td>Append-only, hash-chained, signed person acts, workspace pin; <code>verify</code> recomputes it all. Tamper-evident, not tamper-proof.</td></tr>
+</table>
+</section>
+
+<section id="inventory">
+<h2>Inventory</h2>
+<h3>Top-level commands (18)</h3>
+<table>
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>openlab study VERB</code></td><td>The study verbs below.</td></tr>
+<tr><td><code>openlab replicate</code></td><td>PAPER, draft, lint, show, approve, build, status, report.</td></tr>
+<tr><td><code>openlab propose</code></td><td>new, lint, show, approve, amend, execute, status, stop.</td></tr>
+<tr><td><code>openlab agents</code> / <code>agent</code></td><td>The tree; one agent: spawn, status, log, pause, resume, stop, tell.</td></tr>
+<tr><td><code>openlab watch</code></td><td>Live supervision screen with flags.</td></tr>
+<tr><td><code>openlab inbox</code></td><td>Pending requests; approve / deny (signed); wait.</td></tr>
+<tr><td><code>openlab person</code></td><td>The person key: init, show, rotate, pin.</td></tr>
+<tr><td><code>openlab init</code></td><td>A workspace: OPENLAB.md, openlab.toml, .mcp.json; <code>--claude</code> hooks and role agents; <code>--codex</code>.</td></tr>
+<tr><td><code>openlab app</code></td><td>Workspace server: web UI and tool API.</td></tr>
+<tr><td><code>openlab guide</code> / <code>tools</code> / <code>tool</code></td><td>The agent's guide, the tool list, one tool call from a shell.</td></tr>
+<tr><td><code>openlab env</code></td><td>The sandbox's Python; <code>env add PKG</code> without changing installed versions.</td></tr>
+<tr><td><code>openlab doctor</code></td><td>What works in this install and the line that fixes what does not.</td></tr>
+<tr><td><code>openlab verify</code></td><td>Check a signed file offline.</td></tr>
+<tr><td><code>openlab hook</code></td><td>A Claude Code hook entry point.</td></tr>
+</table>
+
+<h3>Study verbs (49)</h3>
+<table>
+<tr><th>Area</th><th>Verbs</th></tr>
+<tr><td>Lifecycle</td><td class="chips"><code>new</code> <code>materialise</code> <code>run</code> <code>runs</code> <code>status</code> <code>show</code> <code>why</code> <code>amend</code> <code>promote</code> <code>verify</code></td></tr>
+<tr><td>Holdout and forward</td><td class="chips"><code>holdout</code> <code>forecast</code> <code>fill</code> <code>schedule</code> <code>monitor</code></td></tr>
+<tr><td>Literature</td><td class="chips"><code>discover</code> <code>fetch</code> <code>find</code> <code>screen</code> <code>prisma</code> <code>extract</code> <code>evidence</code> <code>sources</code> <code>compare</code> <code>lattice</code> <code>recall</code> <code>contra</code></td></tr>
+<tr><td>Claims and organisation</td><td class="chips"><code>claim</code> <code>claims</code> <code>question</code> <code>hypothesis</code> <code>test</code> <code>assume</code> <code>break</code> <code>dead-end</code> <code>tree</code> <code>approve</code> <code>trace</code> <code>traceability</code></td></tr>
+<tr><td>Work allocation</td><td class="chips"><code>frontier</code> <code>take</code> <code>release</code></td></tr>
+<tr><td>Replication</td><td class="chips"><code>replicate</code> <code>fidelity</code> <code>replication</code> <code>replications</code> <code>reproduce</code> <code>bundle</code></td></tr>
+<tr><td>Paper</td><td class="chips"><code>paper</code> <code>paper-lint</code> <code>verify-paper</code></td></tr>
+</table>
+
+<h3>Tools an agent calls (91)</h3>
+<table>
+<tr><th>Section</th><th>Tools</th></tr>
+<tr><td>study (64)</td><td class="chips"><code>study_new</code> <code>study_materialise</code> <code>study_run</code> <code>study_runs</code> <code>study_status</code> <code>study_amend</code> <code>study_amend_person</code> <code>study_holdout</code> <code>study_verify</code> <code>study_why</code> <code>study_node</code> <code>study_nodes</code> <code>study_graph</code> <code>study_impact</code> <code>study_log</code> <code>study_list</code> <code>study_promote</code> <code>study_forecast</code> <code>study_forecasts</code> <code>study_fill</code> <code>study_schedule</code> <code>study_monitor</code> <code>study_discover</code> <code>study_fetch_text</code> <code>study_find</code> <code>study_screen</code> <code>study_screen_person</code> <code>study_prisma</code> <code>study_extract</code> <code>study_evidence</code> <code>study_sources</code> <code>study_compare</code> <code>study_lattice</code> <code>study_recall</code> <code>study_contra</code> <code>study_claim</code> <code>study_claims</code> <code>study_question</code> <code>study_hypothesis</code> <code>study_test</code> <code>study_assume</code> <code>study_break</code> <code>study_dead_end</code> <code>study_tree</code> <code>study_approve</code> <code>study_trace</code> <code>study_traceability</code> <code>study_frontier</code> <code>study_take</code> <code>study_release</code> <code>study_replicate</code> <code>study_fidelity</code> <code>study_replication</code> <code>study_replications</code> <code>study_reproduce</code> <code>study_reproductions</code> <code>study_bundle</code> <code>study_paper</code> <code>study_paper_lint</code> <code>propose_new</code> <code>propose_lint</code> <code>propose_show</code> <code>propose_status</code> <code>propose_stop</code></td></tr>
+<tr><td>research (16)</td><td class="chips"><code>agent_spawn</code> <code>agent_list</code> <code>agent_tree</code> <code>agent_status</code> <code>agent_log</code> <code>agent_wait</code> <code>agent_control</code> <code>agent_note</code> <code>agent_request</code> <code>agent_inbox_item</code> <code>inbox_list</code> <code>inbox_decide</code> <code>paper_search</code> <code>paper_read</code> <code>paper_related</code> <code>paper_results</code></td></tr>
+<tr><td>workspace (7)</td><td class="chips"><code>ws_list</code> <code>ws_read</code> <code>ws_write</code> <code>ws_move</code> <code>ws_delete</code> <code>notes_add</code> <code>notes_list</code></td></tr>
+<tr><td>meta (4)</td><td class="chips"><code>tools</code> <code>usage</code> <code>agent_activity</code> <code>key_info</code></td></tr>
+</table>
+
+<h3>study.toml at a glance</h3>
+<table>
+<tr><th>Section</th><th>Keys</th></tr>
+<tr><td><code>[study]</code></td><td>name, question, mode (temporal | static | review), fresh / continues</td></tr>
+<tr><td><code>[data.NAME]</code></td><td>one of provider (+ endpoint, args) / snapshot / file (+ recipe); time, key, known_at, vintages, licence</td></tr>
+<tr><td><code>[target]</code></td><td>column (static), horizon (temporal), outputs</td></tr>
+<tr><td><code>[split]</code></td><td>temporal: walk_forward, decisions, refit, window, research, holdout, embargo, burn_in, train_from. Static: kfold / stratified / group / insample, k, fraction, by, seed, reseed</td></tr>
+<tr><td><code>[evaluate]</code></td><td>prediction (point, prob, gaussian, quantiles, ensemble, interval, frame), metrics, level, by = "key", baselines, interval, alpha, block, policy_metrics, policy_baselines</td></tr>
+<tr><td><code>[metrics.NAME]</code></td><td>a study's own metric: better, reads, description; code in metrics.py, sealed by its sha</td></tr>
+<tr><td><code>[budget]</code> / <code>[audit]</code> / <code>[sandbox]</code></td><td>trials, holdout_looks / n / threads, network, timeout</td></tr>
+<tr><td><code>[forecast]</code> / <code>[schedule]</code> / <code>[monitor]</code></td><td>model, gate, expires / cron, refresh / cron, notify</td></tr>
+<tr><td><code>[review]</code></td><td>question, sources, criteria, coverage floor, comparable_on (literature studies)</td></tr>
+</table>
+</section>
+
+<section id="modules">
+<h2>Modules and inner workings</h2>
+<div class="grid">
+  <div class="card"><h4>openlab/study: definition</h4><ul>
+    <li><b>spec</b>: load and validate study.toml; seal into the record; amend with a recorded diff.</li>
+    <li><b>data</b>: registered datasets, materialised to parquet, recorded with sha and card.</li>
+    <li><b>view</b>: point-in-time views (<code>known_at</code>, vintages).</li>
+    <li><b>splits</b>: decisions per segment, refit cadence, folds, holdout carve, reseeding.</li>
+    <li><b>durations</b>, <b>clock</b>: "18h", "1d", calendar months; timestamps read one way.</li>
+    <li><b>fingerprint</b>: spec, code files, data and environment hashes; the run key.</li>
+  </ul></div>
+  <div class="card"><h4>openlab/study: execution</h4><ul>
+    <li><b>runner</b>: temporal walk (refit / update, wide-distribution reducer, progress), static folds,
+      truncation audit with memory gating, evaluation, groups, policy.</li>
+    <li><b>sandbox</b> + <b>child</b>: the job in a bwrap child; the only place study code runs.</li>
+    <li><b>baselines</b>: persistence, climatology, majority, ..., and <code>model:Name</code> classes.</li>
+    <li><b>registry</b>: MLflow model store; determinism check of the packed model.</li>
+    <li><b>reproduce</b>: re-run a recorded run from the record alone; <b>signing</b>, bundles.</li>
+    <li><b>branches</b>: per-branch copies of model.py for parallel experimenters.</li>
+  </ul></div>
+  <div class="card"><h4>openlab/study: scoring</h4><ul>
+    <li><b>metrics</b>: versioned registry (mae, rmse, crps, crps_empirical, brier, logloss, auc, coverage,
+      pinball, ...); per-row statistics for the bootstrap; a study's own metrics adopted in the sandbox.</li>
+    <li><b>inference</b>: bootstrap / block bootstrap intervals, paired differences, Diebold-Mariano, Holm.</li>
+    <li><b>variants</b>: one result against another on the rows both scored.</li>
+  </ul></div>
+  <div class="card"><h4>openlab/study: the record</h4><ul>
+    <li><b>record</b>: append-only hash-chained SQLite + content store.</li>
+    <li><b>schema</b>: typed bodies per node kind, allowed links, computed fields; fidelity and replication
+      fields; column checks for table quotes.</li>
+    <li><b>ledger</b>: trial and holdout budgets per question and data, shared across studies.</li>
+    <li><b>vault</b>: holdout labels outside the study; <b>holdout</b>: a person's look.</li>
+    <li><b>personkey</b>: signatures on person nodes; <b>show</b>, <b>graph</b>: read views.</li>
+  </ul></div>
+  <div class="card"><h4>openlab/study: research flows</h4><ul>
+    <li><b>paperplan</b> (+ cli): replicate: draft, lint, approve, build, status, report.</li>
+    <li><b>replication</b>: the study behind a replication; fidelity / replication rows.</li>
+    <li><b>proposal</b> (+ propose_cli): research from a prompt.</li>
+    <li><b>literature</b> + <b>evidence</b>: discovery, screening, full text by page, quotes, comparisons.</li>
+    <li><b>claims</b>, <b>frontier</b>: question tree, alpha-investing error budget, assumptions; what to do next.</li>
+    <li><b>forward</b>, <b>schedule</b>, <b>monitor</b>, <b>notify</b>, <b>checks</b>: signed forecasts, cron, watches, alerts, SQL gates.</li>
+    <li><b>paper/</b>: build, bindings, sections, lint: the paper from the record.</li>
+  </ul></div>
+  <div class="card"><h4>openlab/agents</h4><ul>
+    <li><b>store</b>: control.db (agents, events, inbox, leases, directions, notify).</li>
+    <li><b>spawn</b> + <b>supervisor</b>: start an agent's CLI, enforce $ / minutes / turns, pause, stop.</li>
+    <li><b>hooks</b> (+ hook): PreToolUse / PostToolUse rules, bypass refusals, signed directions.</li>
+    <li><b>identity</b>: attribution of every write; <b>person</b>: the key, pins, signed directions.</li>
+    <li><b>inbox</b>: request kinds, describe, decide, resume; <b>view</b> + <b>cli</b>: agents, watch.</li>
+    <li><b>pricing</b>, <b>claude_setup</b>: cost estimates; init for Claude Code / Codex.</li>
+  </ul></div>
+  <div class="card"><h4>openlab/app, sources, engine</h4><ul>
+    <li><b>app.registry</b>: <code>@tool</code> registration and dispatch; <b>server</b>: web UI;
+      <b>study_tools</b>, <b>agent_tools</b>, <b>propose_tools</b>, <b>papers</b>, <b>tools</b>, <b>usage</b>.</li>
+    <li><b>mcp_server</b>: the tools over MCP, with a "openlab code changed" hint.</li>
+    <li><b>sources</b>: one rate-limited, cached HTTP path; papers (OpenAlex, arXiv, Crossref), FRED / IMF /
+      World Bank, BLS, BEA, Census, EIA, EPA, FDIC, NOAA, Treasury, USAspending, USDA, GDELT, Wikipedia; snapshots.</li>
+    <li><b>engine</b>: the equation language (parse, semantics, units, proofs) behind derived claims and the
+      equation gate (each paper equation bound to its function and checked on probe inputs).</li>
+    <li><b>envcli</b>, <b>doctor</b>, <b>init</b>, <b>thin_cli</b>.</li>
+  </ul></div>
+</div>
+</section>
+
+<section id="session">
+<h2>Changed in the debug period (2026-10-10/11)</h2>
+<table>
+<tr><th>Area</th><th>Change</th></tr>
+<tr><td>Replication</td><td>Multi-level table headers; multiple proposed methods; re-approval with the primary kept; mean over runs with seed spread in the interval; per-entity groups; in-sample marking; corrected replication rule (metric direction); flags for verdicts the corrected rule disagrees with; person-amended metric code needs no second approval.</td></tr>
+<tr><td>Runs</td><td>Wide distributions reduced on disk; <code>update()</code>; <code>train_from</code>; <code>--seed</code> and <code>reseed</code>; insample scheme; <code>evaluate.by = "key"</code> (temporal and static); progress and memory-gated audits; policy baselines act on their own forecast; a declared policy with no <code>act()</code> is refused.</td></tr>
+<tr><td>Supervision</td><td><code>agent tell</code> (signed directions); RUN state in watch; inbox amend requests carry the fields they set; approval resumes the ended requester; <code>[agents] notify</code>; <code>inbox wait</code>; <code>openlab env add</code>.</td></tr>
+<tr><td>Planning</td><td>Plans state their compute (runs, run_minutes, parallel, estimate) and lint checks it against the minutes; status shows the measured pace.</td></tr>
+</table>
+</section>
+
+<footer>Generated from the code on branch research-framework (study + agents about 27k lines, engine about 14.7k).
+Diagrams render with Mermaid from a CDN; without network the diagram sources show as text.</footer>
+</main>
+<script>mermaid.initialize({ startOnLoad: true, theme: "neutral", flowchart: { curve: "basis", useMaxWidth: false }, sequence: { useMaxWidth: false }, securityLevel: "loose" });</script>
+</body>
+</html>

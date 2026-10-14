@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use openlab in your research, please cite it as below."
+title: openlab
+abstract: "A research framework and control plane for researchers' own Claude Code and Codex agents, with a tamper-evident study record: a sealed plan, counted trials, person-only holdout looks and a hash-chained record."
+type: software
+version: 1.2.0
+license: PolyForm-Shield-1.0.0
+repository-code: "https://github.com/daniel-debrun/openlab"
+authors:
+  - name: "the openlab authors"

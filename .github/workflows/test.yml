@@ -1,0 +1,27 @@
+name: test
+on:
+  push: {branches: [main]}
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix: {python: ["3.10", "3.11", "3.12", "3.13"]}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: tests
+        run: uv run -p ${{ matrix.python }} --extra test --extra study pytest -q -rfE
+      - name: lint (undefined names, syntax)
+        if: matrix.python == '3.11'
+        run: uvx ruff check --select E9,F63,F7,F82 openlab bench tests
+      - name: doctor and a study end to end
+        if: matrix.python == '3.11'
+        run: |
+          uv run --extra study openlab doctor || true
+          uv run --extra study openlab study new /tmp/ci-study --template temporal
+          uv run --extra study openlab study materialise /tmp/ci-study
+          uv run --extra study openlab study run /tmp/ci-study

@@ -1,0 +1,34 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+site/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.testmondata*
+.ipynb_checkpoints/
+mlruns/
+
+# the web UI's dependencies (the built bundle in openlab/app/static/ is committed)
+node_modules/
+*.tsbuildinfo
+
+# benchmark runs (transcripts can be large)
+bench/results/
+
+# secrets and local databases: a workspace's record, the person key, holdouts
+.env*
+*.pem
+*.key
+*.db
+holdout_*.openlab
+
+# a workspace's own state when openlab runs inside this checkout
+/.openlab/
+
+# local notes and plans (never published)
+todo/
+plans/

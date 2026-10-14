@@ -1,0 +1,37 @@
+[study]
+name = "__name__"
+question = "Does today's signal x predict tomorrow's y at each site better than persistence and climatology?"
+mode = "temporal"
+
+[data.panel]                    # exactly one of provider / snapshot / file; a file needs the recipe that makes it
+file = "data/panel.parquet"
+recipe = "recipes/make_data.py"
+time = "date"
+key = ["site"]
+known_at = "date"               # a row is known on its date
+
+[target]
+horizon = "1d"
+
+[split]
+scheme = "walk_forward"
+decisions = "daily"
+refit = "30d"
+window = "expanding"
+research = [2024-01-01, 2024-12-31]
+holdout = [2025-01-01, 2025-06-30]
+
+[evaluate]
+prediction = "point"
+metrics = ["mae", "rmse"]       # the first one is primary
+baselines = ["persistence", "climatology"]
+interval = "block_bootstrap"
+alpha = 0.05
+
+[budget]
+trials = 20
+holdout_looks = 1
+
+[sandbox]
+# threads = 1            # the model's thread pools (polars, BLAS); more is allowed and recorded with each run
+network = false

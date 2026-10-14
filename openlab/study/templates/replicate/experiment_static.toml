@@ -1,0 +1,11 @@
+[data.main]                     # the one table a static study reads
+file = "data/main.parquet"
+recipe = "recipes/make_data.py"
+
+[target]
+column = "y"
+
+[split]
+scheme = "kfold"
+k = 5
+seed = 1

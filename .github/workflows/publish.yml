@@ -1,0 +1,29 @@
+# Publish to PyPI when a GitHub release is published. Uses PyPI trusted publishing (OIDC): no token is stored here.
+# One-time setup on pypi.org: add a trusted publisher for this repository, workflow `publish.yml`, environment `pypi`.
+name: publish
+on:
+  release: {types: [published]}
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: build the sdist and wheel
+        run: uv build
+      - name: check the wheel installs and runs
+        run: |
+          uv venv /tmp/v && uv pip install -p /tmp/v/bin/python dist/*.whl
+          /tmp/v/bin/openlab --help
+      - uses: actions/upload-artifact@v4
+        with: {name: dist, path: dist/}
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions: {id-token: write}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: dist, path: dist/}
+      - uses: pypa/gh-action-pypi-publish@release/v1

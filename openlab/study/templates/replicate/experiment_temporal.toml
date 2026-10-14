@@ -1,0 +1,14 @@
+[data.main]                     # one table per file the recipe writes
+file = "data/main.parquet"
+recipe = "recipes/make_data.py"
+time = "date"
+key = ["id"]
+known_at = "date"
+
+[target]
+horizon = "1d"
+
+[split]
+scheme = "walk_forward"
+decisions = "daily"
+research = [2020-01-01, 2020-12-31]

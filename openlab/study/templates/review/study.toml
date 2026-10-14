@@ -1,0 +1,31 @@
+[study]
+name = "__name__"
+question = "What does the literature report on post-processing ensemble weather forecasts, and how well does it work?"
+mode = "review"                 # a review runs no experiment: [study] and [review] only
+
+# The review protocol. The first `openlab study discover` seals it; after that a change is an amendment, and the
+# coverage floor (and comparable_on) need a person.
+[review]
+question = "Which post-processing methods beat the raw ensemble, by how much, on which data?"
+scope = "peer-reviewed papers and preprints that evaluate a method on real forecasts"
+sources = ["openalex", "arxiv"]                 # any of openalex, arxiv, crossref
+queries = ["ensemble forecast post-processing", "EMOS calibration ensemble"]
+since = "2005-01-01"                            # optional: keep works published from this date
+n = 25                                          # hits per query on each index
+citation_hops = 1                               # follow references and citing works this many hops from the hits
+# every screening decision cites one of these criterion ids
+include = [{id = "I1", text = "evaluates a post-processing method on real ensemble forecasts"}]
+exclude = [{id = "E1", text = "not about weather or climate forecasts"},
+           {id = "E2", text = "no quantitative evaluation"}]
+# the least search that counts as sufficient: queries per index, and citation hops
+coverage_floor = {queries_per_source = 2, hops = 1}
+coordinates = ["dataset"]                       # the protocol: results compare only within one dataset
+comparable_on = ["dataset"]
+
+# what evidence reads from a page: field = number | int | text | list. A number must be written in the quote, and so
+# must a text, unless it is free = true (a table row rarely names its dataset or metric).
+[review.extract]
+method = "text"
+dataset = {type = "text", free = true}
+metric = {type = "text", free = true}
+value = "number"
