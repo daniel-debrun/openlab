@@ -444,20 +444,29 @@ def _parse(cmd: str) -> list[dict]:
     return cmds
 
 
+def _program_at(c: dict) -> int:
+    """The index in argv of the word naming the program a simple command runs (after wrappers like env, sudo,
+    timeout, xargs and their options), or -1 when there is none."""
+    argv, k = c["argv"], 0
+    while k < len(argv):
+        w = argv[k]
+        if (os.path.basename(w["value"]) if w["literal"] else "") not in _RUNS_NEXT:
+            return k
+        k += 1
+        while k < len(argv) and (argv[k]["value"].startswith("-") or _NAME_ASSIGN.match(argv[k]["raw"]) or
+                                 argv[k]["value"].replace(".", "").isdigit()):
+            k += 1
+    return -1
+
+
 def _program(c: dict) -> tuple[str, list[dict]]:
     """The program a simple command runs (its basename, after wrappers like env, sudo, timeout, xargs) and its
     arguments; "" when it is a variable or substitution the reader cannot name."""
-    argv = list(c["argv"])
-    while argv:
-        w = argv[0]
-        name = os.path.basename(w["value"]) if w["literal"] else ""
-        if name not in _RUNS_NEXT:
-            return name, argv[1:]
-        argv = argv[1:]
-        while argv and (argv[0]["value"].startswith("-") or _NAME_ASSIGN.match(argv[0]["raw"]) or
-                        argv[0]["value"].replace(".", "").isdigit()):
-            argv = argv[1:]
-    return "", []
+    k = _program_at(c)
+    if k < 0:
+        return "", []
+    w = c["argv"][k]
+    return (os.path.basename(w["value"]) if w["literal"] else ""), c["argv"][k + 1:]
 
 
 def _openlab_args(c: dict) -> Optional[list[dict]]:
@@ -666,6 +675,85 @@ def _openlab_act(cmds: list[dict]) -> Optional[str]:
     return None
 
 
+def _unquoted(text: str) -> str:
+    """The text as written without quote splicing (`open""lab`, `open\\lab`), the way the guard also reads a line."""
+    return re.sub(r"['\"]|\\(?=[A-Za-z])", "", text)
+
+
+def _quiet_out(cmds: list[dict], k: int) -> bool:
+    """Whether what command k prints goes only to the screen or /dev/null, through inert commands at most: never
+    into a file, a shell or another program that could run it."""
+    c = cmds[k]
+    for op, w in c["redirs"]:
+        if ">" in op and not (op.endswith("&") and w["value"] in ("1", "2", "-")) and w["value"] != "/dev/null":
+            return False
+    while cmds[k]["sep"] == "|" and k + 1 < len(cmds):
+        k += 1
+        argv = cmds[k]["argv"]
+        if cmds[k]["assigns"] or not argv or not argv[0]["literal"] or argv[0]["raw"] not in _INERT:
+            return False
+    return True
+
+
+def _code_names_openlab(code: str, depth: int) -> bool:
+    """`_names_openlab` for the code a substitution runs; a line the reader cannot follow names openlab if the word
+    appears in it at all."""
+    try:
+        if depth > 4:
+            raise _Unclear
+        return _names_openlab(code, _parse(code), [], depth)
+    except Exception:                                           # noqa: BLE001 -- read whole, as before
+        return bool(OPENLAB_WORD.search(code + "\n" + _unquoted(code)))
+
+
+def _names_openlab(cmd: str, cmds: list[dict], spans: list[tuple[int, int]], depth: int = 0) -> bool:
+    """Whether the line may run openlab (B9): the word `openlab` stands somewhere it could name the CLI. It does not
+    when every place it appears is one of:
+    - data (`_data_spans`);
+    - the directory part of a literal program path whose basename is not openlab (`~/.venvs/openlab/bin/python`);
+    - an argument, here-string or input of an inert command (cd, ls, cat, grep, ...) run plainly (no wrapper: watch
+      or parallel hand their words to a shell) whose output goes only to the screen, /dev/null or an inert pipe
+      (`cd /tmp/openlab`);
+    - a literal file an output redirection writes (`> /tmp/openlab.log`);
+    and no substitution on the line names openlab. Anywhere else it counts, so `openlab` and `~/.local/bin/openlab`
+    by name, `python -m openlab`, python code importing it, sh -c/eval code, an assignment holding it (a variable-held
+    command), a wrapper's words, a heredoc body or a comment all name it."""
+    rest = list(cmd)
+    words = [(k, w, role) for k, c in enumerate(cmds) for w, role in
+             [(w, "assign") for w in c["assigns"]] + [(w, "argv") for w in c["argv"]] +
+             [(w, "out" if ">" in op and "<" not in op else "in") for op, w in c["redirs"]] +
+             [(w, "in") for w in c["herestrings"]]]
+    for a, b in list(spans) + [(w["start"], w["end"]) for _, w, _ in words]:
+        rest[a:b] = " " * (b - a)
+    rest = "".join(rest)
+    if OPENLAB_WORD.search(rest + "\n" + _unquoted(rest)):
+        return True                                             # a heredoc body, a comment, a heredoc delimiter
+    for k, w, role in words:
+        if any(a <= w["start"] and w["end"] <= b for a, b in spans):
+            continue
+        if any(_code_names_openlab(code, depth + 1) for code in w["subst"]):
+            return True
+        text = w["value"] + "\n" + _unquoted(w["raw"])
+        for code in w["subst"]:                                 # judged above, as code of its own
+            text = text.replace("$(" + code + ")", " ").replace("`" + code + "`", " ")
+        if not OPENLAB_WORD.search(text):
+            continue
+        c = cmds[k]
+        at = _program_at(c)
+        prog = c["argv"][at] if at >= 0 else None
+        if w is prog:
+            if w["literal"] and not OPENLAB_WORD.search(os.path.basename(w["value"])):
+                continue                                        # a directory of the program's path
+            return True
+        if role == "out" and w["literal"]:
+            continue
+        if at == 0 and prog["literal"] and prog["raw"] in _INERT and \
+                (role == "in" or (role == "argv" and w["start"] > prog["start"])) and _quiet_out(cmds, k):
+            continue                                            # a path or text an inert command only names or reads
+        return True
+    return False
+
+
 ASK = "file openlab_agent_request(kind, study, args, reason) with the exact act, and carry on with other work"
 RECORD = ("the .openlab/ folders are openlab's record and control store; nothing writes into them but openlab",
           "let openlab write it: its tools and CLI keep the record (study_run, study_amend, openlab study ...)")
@@ -845,14 +933,16 @@ def guard(tool: str, inp: dict, _depth: int = 0) -> Optional[tuple[str, str, str
     inp = inp if isinstance(inp, dict) else {}
     if tool == "Bash":
         cmd = str(inp.get("command") or "")
-        act, programs, payloads = None, [], []
+        act, programs, payloads, named = None, [], [], None
         try:                                    # what the line only carries as data is blanked; the rest reads as before
             cmds = _parse(cmd)
             act, programs = _openlab_act(cmds), [_program(c)[0] for c in cmds]
             payloads = _payloads(cmds) if _depth < 4 else []
-            cmd = _scrub(cmd, _data_spans(cmd, cmds))
+            spans = _data_spans(cmd, cmds)
+            named = _names_openlab(cmd, cmds, spans, _depth)
+            cmd = _scrub(cmd, spans)
         except Exception:                       # noqa: BLE001 -- _Unclear, or a shape the reader trips on: read whole
-            pass
+            named = None
         cmd = cmd + "\n" + re.sub(r"['\"]|\\(?=[A-Za-z])", "", cmd)     # also as written without quote splicing
         for rx, what in PERSON_VERBS:
             if rx.search(cmd):
@@ -868,7 +958,8 @@ def guard(tool: str, inp: dict, _depth: int = 0) -> Optional[tuple[str, str, str
         if ENV_OVERRIDE.search(cmd):
             return ("bypass", "CLAUDECODE, CLAUDE_CODE_ENTRYPOINT and OPENLAB_AGENT* say whose shell this is; an agent "
                     "cannot unset or override them", "run the command in the shell you were given, as yourself")
-        if OPENLAB_WORD.search(cmd) and OPENLAB_ENV.search(TUNING.sub("", cmd)):
+        # B9: openlab counts where it could name the CLI, not in a path the reader can place; unread, the word anywhere
+        if (OPENLAB_WORD.search(cmd) if named is None else named) and OPENLAB_ENV.search(TUNING.sub("", cmd)):
             return ("bypass", "an openlab command run with HOME, XDG_CONFIG_HOME or a OPENLAB_* variable changed would "
                     "use another person key or workspace", "run openlab in the environment you were given "
                     "(OPENLAB_AUDIT_WORKERS and OPENLAB_DISCOVER_WORKERS may be set)")

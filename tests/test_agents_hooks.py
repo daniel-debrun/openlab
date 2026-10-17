@@ -681,6 +681,70 @@ def test_the_same_words_in_command_position_stay_a_bypass(cmd):
     assert g and g[0] == "bypass", cmd
 
 
+ENV_REFUSAL = "an openlab command run with HOME, XDG_CONFIG_HOME or a OPENLAB_* variable changed"
+
+
+@pytest.mark.parametrize("cmd", [
+    # B9: openlab only in a working folder, in the interpreter's path or in a log file's path
+    "cd /tmp/openlab && OPENLAB_X=1 python -m pytest -q",
+    "OPENLAB_SHOTS=/tmp/shots ~/.venvs/openlab/bin/python -m pytest -q tests/test_x.py",
+    "cd ~/.nightly/openlab/experiments && OPENLAB_SHOTS=/tmp/exp-shots timeout 900 ~/.venvs/openlab/bin/python -m "
+    "pytest -q tests/test_experiments.py",
+    "HOME=/tmp/h ~/.venvs/openlab/bin/pytest -q", "XDG_CONFIG_HOME=/tmp/c /home/u/.venvs/openlab/bin/python3 -m pytest",
+    "cd ~/openlab; export OPENLAB_X=1; python -m pytest -q > /tmp/openlab-tests.log 2>&1",
+    "ls ~/openlab/tests | head && OPENLAB_X=1 python -m pytest -q 2>/dev/null",
+    "cd /w/openlab\nOPENLAB_X=1 ~/.venvs/openlab/bin/python -m pytest -x -q",
+    'cd "$HOME/openlab" && OPENLAB_X=1 python -m pytest -q',
+    "env OPENLAB_X=1 ~/.venvs/openlab/bin/python -m pytest -q", "HOME=/tmp/h ~/.venvs/openlab/bin/python train.py",
+    "cd /tmp/openlab && cat x | grep y && OPENLAB_X=1 python -m pytest",
+    "cat > notes.md <<'EOF'\nrun openlab with OPENLAB_X=1 set\nEOF",
+])
+def test_openlab_in_a_path_is_no_openlab_command_with_a_changed_environment(cmd):
+    assert hooks.guard("Bash", {"command": cmd}) is None, cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    # the CLI by name or by a path whose basename is openlab, behind wrappers
+    "OPENLAB_X=1 openlab study run x", "HOME=/tmp/h ~/.local/bin/openlab study run x",
+    "OPENLAB_X=1 ~/.venvs/openlab/bin/openlab study run x", "XDG_CONFIG_HOME=/x ~/.venvs/openlab/bin/openlab-mcp",
+    "env OPENLAB_X=1 openlab study run x", "env HOME=/tmp/h ~/.local/bin/openlab study run x",
+    "OPENLAB_X=1 timeout 60 openlab study run x", "XDG_CONFIG_HOME=/x nice -n 5 openlab study run x",
+    "sudo -E HOME=/x openlab study run x", "OPENLAB_X=1 exec openlab study run x",
+    "OPENLAB_X=1 command openlab study run x", "HOME=/x nohup openlab study run x &",
+    "export HOME=/x; nohup ~/.local/bin/openlab study run x > /tmp/openlab.log 2>&1 &",
+    "HOME=/x open\"\"lab study run x", "HOME=/x ~/.local/bin/open\\lab study run x", "HOME=/x 'openlab' study run x",
+    # python -m openlab, a script that is the CLI, code that imports it
+    "OPENLAB_X=1 python -m openlab study run x", "HOME=/x ~/.venvs/openlab/bin/python -m openlab study run x",
+    "OPENLAB_X=1 python -m openlab.__main__ study run x", "OPENLAB_X=1 python ~/.local/bin/openlab study run x",
+    "OPENLAB_X=1 python3 -c 'from openlab.__main__ import main; main([\"study\", \"run\", \"x\"])'",
+    "OPENLAB_X=1 python - <<'EOF'\nimport openlab\nEOF",
+    # shells, eval, substitutions
+    "OPENLAB_X=1 sh -c 'openlab study run x'", "HOME=/tmp/h bash -c \"cd /tmp && openlab study run x\"",
+    "sh -c 'OPENLAB_X=1 openlab study run x'", 'eval "OPENLAB_X=1 openlab study run x"',
+    "export HOME=/tmp/h; eval openlab study run x", "x=$(OPENLAB_X=1 openlab study status x)",
+    'export OPENLAB_X=1; echo "$(openlab study status x)"', "export OPENLAB_X=1; cd `openlab study path x`",
+    "echo 'openlab study run x' | HOME=/x sh", "echo study run x | HOME=/x xargs openlab",
+    "echo openlab study run x > /tmp/r.sh; HOME=/x sh /tmp/r.sh",
+    "export OPENLAB_X=1; watch echo '$(openlab study run x)'", "export OPENLAB_X=1; echo openlab | parallel",
+    # a variable-held command
+    "ol=openlab; OPENLAB_X=1 $ol study run x", 'c="openlab study run x"; HOME=/tmp/h $c',
+    "OL=~/.local/bin/openlab HOME=/x sh -c '$OL study run'",
+    # a real openlab beside a working folder named openlab
+    "cd /tmp/openlab && OPENLAB_X=1 openlab study run x", "cd ~/.local/bin && HOME=/x ./openlab study run x",
+    "OPENLAB_X=1 python -m pytest -q; openlab study status x",
+    # what the reader cannot follow, or does not prove inert, stays refused (fail closed)
+    "(cd /tmp/openlab && OPENLAB_X=1 python -m pytest -q)", "OPENLAB_X=1 python -m pytest ~/openlab/tests",
+    "OPENLAB_X=1 sh -c 'cd /tmp/openlab && python -m pytest'", "OPENLAB_X=1 python -m pytest  # openlab",
+    "OPENLAB_X=1 $PY/openlab/bin/python -m pytest",
+    "cd /tmp/openlab; HOME=/x python -m openlab study run x", "HOME=/x ~/.venvs/openlab/bin/python <<< 'import openlab'",
+    "HOME=/x ~/.venvs/openlab/bin/python < /tmp/openlab.py", "cat /tmp/openlab.py | HOME=/x python",
+    "grep -l openlab x | HOME=/x xargs python", "HOME=/x python -m pytest -p openlab.testing",
+])
+def test_a_changed_environment_on_a_real_openlab_invocation_stays_refused(cmd):
+    g = hooks.guard("Bash", {"command": cmd})
+    assert g and g[0] == "bypass" and ENV_REFUSAL in g[1], (cmd, g)
+
+
 @pytest.mark.parametrize("cmd", [
     "cat .openlab/record.db", "sqlite3 demo/.openlab/record.db 'select 1'", "grep -rn holdout demo/.openlab",
     f'grep -n "{V_DECIDE}" demo/.openlab/hooks.log', "rg x -g '*.py' kref/.openlab",
