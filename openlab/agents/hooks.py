@@ -196,6 +196,165 @@ def _in_record(path: str) -> bool:
     return not path.startswith("!") and ".openlab" in Path(path).parts
 
 
+# --- the edit gate on scripts (B5) ----------------------------------------------------------------------------
+#: the person verbs a written script must not run
+SCRIPT_VERBS = PERSON_VERBS[:4] + PERSON_VERBS[6:8]
+#: files a shell runs as written: any person-verb text in them is refused
+SHELL_SUFFIXES = (".sh", ".bash", ".zsh", ".ksh", ".exp", ".mk", "")
+JS_SUFFIXES = (".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx")
+JS_SPAWN = re.compile(r"child_process|\bexeca\b|\bshelljs\b|\bDeno\.(run|Command)\b|\bBun\.(spawn\w*|\$)")
+#: the modules a .py may import and still show a person verb as text: none can start a process, run a string as
+#: code or import by name (os and sys can, through the attributes PY_NO_ATTR refuses)
+PY_SAFE_IMPORTS = frozenset((
+    "__future__", "abc", "argparse", "array", "base64", "binascii", "bisect", "calendar", "collections", "colorsys",
+    "contextlib", "copy", "csv", "dataclasses", "datetime", "decimal", "difflib", "enum", "errno", "fnmatch",
+    "fractions", "functools", "glob", "gzip", "hashlib", "heapq", "hmac", "html", "io", "ipaddress", "itertools",
+    "json", "keyword", "math", "numbers", "os", "pathlib", "pprint", "random", "re", "secrets", "shlex", "stat",
+    "statistics", "string", "struct", "sys", "tempfile", "textwrap", "time", "tomllib", "tomli", "traceback",
+    "typing", "typing_extensions", "unicodedata", "uuid", "warnings", "zlib", "zoneinfo",
+    "numpy", "polars", "pandas", "scipy", "sklearn", "pytest", "openlab"))
+#: builtins that run a string as code, import by name, open the module's namespaces or a pager (which runs $PAGER)
+PY_NO_NAMES = frozenset(("eval", "exec", "compile", "execfile", "__import__", "breakpoint", "help", "globals",
+                         "locals", "vars", "__builtins__", "__builtin__", "builtins", "subprocess", "importlib",
+                         "runpy", "attrgetter", "methodcaller"))
+#: attributes (and imported names) that start a process, import by name or reach behind an object
+PY_NO_ATTR = re.compile(r"system|popen|Popen|call|check_call|check_output|getoutput|getstatusoutput|exec([lv]\w*)?|"
+                        r"spawn\w*|posix_spawnp?|fork\w*|startfile|create_subprocess_\w+|subprocess|import_module|"
+                        r"reload|run_path|run_module|resolve_name|locate|dictConfig|fileConfig|modules|_getframe|"
+                        r"(?!__(name|file|doc|init|post_init|qualname|all|version|slots|repr|str|eq|hash|len|iter|"
+                        r"enter|exit)__$)__\w+__")
+#: openlab's command lines and person modules: importing one (or reaching one as an attribute) refuses the file
+OPENLAB_ACTS = re.compile(r"\w*cli|__main__|main|mcp_server|app|person\w*|signing|holdout|hooks?|inbox|proposal|"
+                          r"spawn|remote|supervisor|sandbox|detached|machine|instrument\w*|doctor|benchmark|study_tools")
+OPENLAB_ACT_ATTRS = re.compile(r"\w*cli|__main__|mcp_server|person\w*|signing|holdout|hooks?|inbox|proposal|"
+                               r"sandbox|detached|supervisor|study_tools")
+#: the person module's reads, which spec.py imports to show the pin
+PERSON_READS = frozenset(("pin_state", "pinned_public", "fingerprint"))
+_CODING = re.compile(r"^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)")
+
+
+def _after_edit(tool: str, inp: dict, path: str) -> Optional[str]:
+    """The whole file this call leaves: a Write's content, or an Edit/MultiEdit applied to the file on disk. None
+    when that cannot be known (no file, an old_string it does not hold)."""
+    if tool == "Write":
+        c = inp.get("content")
+        return c if isinstance(c, str) and not any(inp.get(k) for k in ("new_string", "new_source", "edits")) else None
+    if tool not in ("Edit", "MultiEdit"):
+        return None
+    try:
+        src = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    edits = [inp] if tool == "Edit" else inp.get("edits")
+    if not isinstance(edits, list) or not edits:
+        return None
+    for e in edits:
+        old, new = (e.get("old_string"), e.get("new_string")) if isinstance(e, dict) else (None, None)
+        if not isinstance(old, str) or not isinstance(new, str) or not old or old not in src:
+            return None
+        src = src.replace(old, new) if e.get("replace_all") else src.replace(old, new, 1)
+    return src
+
+
+def _py_bad_import(node) -> bool:
+    """Whether an import is outside PY_SAFE_IMPORTS, a star import, or reaches openlab's CLI or person modules (the
+    person module's reads in PERSON_READS excepted) or a name PY_NO_ATTR refuses."""
+    import ast
+    if isinstance(node, ast.Import):
+        for a in node.names:
+            parts = a.name.split(".")
+            if parts[0] not in PY_SAFE_IMPORTS or \
+                    (parts[0] == "openlab" and (len(parts) == 1 or any(OPENLAB_ACTS.fullmatch(p) for p in parts))):
+                return True
+        return False
+    parts = (node.module or "").split(".") if node.module else []
+    names = [a.name for a in node.names]
+    if "*" in names or any(n in PY_NO_NAMES or PY_NO_ATTR.fullmatch(n) for n in names):
+        return True
+    if not node.level and parts[0] != "openlab":
+        return parts[0] not in PY_SAFE_IMPORTS
+    acts = [p for p in parts if OPENLAB_ACTS.fullmatch(p)]
+    if any(OPENLAB_ACTS.fullmatch(n) for n in names):
+        return True
+    return bool(acts) and not (all(p.startswith("person") for p in acts) and all(n in PERSON_READS for n in names))
+
+
+def _py_shows_only(src: str) -> bool:
+    """Whether a Python file only shows its person-verb text (B5): it parses, every match of SCRIPT_VERBS lies in a
+    string or a comment (none in an f-string's code), and nothing in it can start a process, run a string as code,
+    import by name or reach openlab's CLI or person modules. Anything else is judged as a script."""
+    import ast
+    import io
+    import tokenize
+    src = src.replace("\r\n", "\n").replace("\r", "\n")             # what Python reads: a lone CR ends a line
+    first = src.split("\n", 2)
+    if first[0].startswith("#!") and "python" not in first[0]:
+        return False
+    for line in first[:2]:
+        m = _CODING.match(line)
+        if m and m.group(1).lower().replace("_", "-") not in ("utf-8", "utf8"):
+            return False
+    try:
+        tree = ast.parse(src)
+        toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
+    except (SyntaxError, ValueError, tokenize.TokenError, IndentationError, MemoryError, RecursionError):
+        return False
+    starts, at = [], 0
+    for line in io.StringIO(src).readlines():
+        starts.append(at)
+        at += len(line)
+    shown = {tokenize.STRING, tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
+             tokenize.ENDMARKER} | {getattr(tokenize, n) for n in ("FSTRING_START", "FSTRING_MIDDLE", "FSTRING_END")
+                                    if hasattr(tokenize, n)}
+    code = [(starts[t.start[0] - 1] + t.start[1], starts[t.end[0] - 1] + t.end[1])
+            for t in toks if t.type not in shown and t.start[0] - 1 < len(starts) and t.end[0] - 1 < len(starts)]
+    for rx, _ in SCRIPT_VERBS:
+        for m in rx.finditer(src):
+            if any(a < m.end() and m.start() < b for a, b in code):
+                return False
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if _py_bad_import(node):
+                return False
+        elif isinstance(node, ast.JoinedStr):                       # an f-string's {code} is code
+            for v in node.values:
+                if isinstance(v, ast.FormattedValue) and any(rx.search(ast.unparse(v)) for rx, _ in SCRIPT_VERBS):
+                    return False
+        elif isinstance(node, ast.Attribute):
+            if PY_NO_ATTR.fullmatch(node.attr) or OPENLAB_ACT_ATTRS.fullmatch(node.attr):
+                return False
+        elif isinstance(node, ast.Name):
+            if node.id in PY_NO_NAMES or PY_NO_ATTR.fullmatch(node.id):
+                return False
+        elif isinstance(node, ast.keyword) and node.arg == "shell":
+            return False
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr":
+            name = node.args[1] if len(node.args) >= 2 else None
+            if not (isinstance(name, ast.Constant) and isinstance(name.value, str)) or \
+                    PY_NO_ATTR.fullmatch(name.value) or OPENLAB_ACT_ATTRS.fullmatch(name.value):
+                return False
+    return True
+
+
+def _script_runs_verb(tool: str, inp: dict, path: str, text: str) -> Optional[str]:
+    """The person verb a written script performs, or None. Shell scripts (and suffix-less files: a shebang
+    script, a Makefile) and JavaScript that spawns processes are judged on the text alone; a .py file whose
+    whole resulting source only shows the verb (`_py_shows_only`) passes."""
+    hits = [what for rx, what in SCRIPT_VERBS if rx.search(text)]
+    if not hits:
+        return None
+    suffix = Path(path).suffix
+    if suffix in SHELL_SUFFIXES:
+        return hits[0]
+    if suffix in JS_SUFFIXES:
+        whole = _after_edit(tool, inp, path) or ""
+        return hits[0] if JS_SPAWN.search(text) or JS_SPAWN.search(whole) else None
+    if suffix == ".py":
+        whole = _after_edit(tool, inp, path)
+        return None if whole is not None and _py_shows_only(whole) else hits[0]
+    return None
+
+
 def guard(tool: str, inp: dict) -> Optional[tuple[str, str, str]]:
     """What this call is refused as, or None: (kind, why, fix), kind `bypass` (a person's act, or a write into
     what only openlab or the person writes) or `read` (a read of a .openlab/ folder: refused, but nothing could be
@@ -249,9 +408,9 @@ def guard(tool: str, inp: dict) -> Optional[tuple[str, str, str]]:
         if PTY_TEXT.search(text) and "openlab" in text:
             return ("bypass", "a script that drives openlab through a pty fakes a person's terminal; it is refused to "
                     "agents", "run openlab plainly; for a person's act, " + ASK)
-        for rx, what in PERSON_VERBS[:4] + PERSON_VERBS[6:8]:
-            if rx.search(text) and Path(path).suffix in (".sh", ".py", ".bash", ".zsh", ".exp", ""):
-                return "bypass", f"a script that performs {what} is a person's act; an agent cannot write it", ASK
+        what = _script_runs_verb(tool, inp, path, text)
+        if what:
+            return "bypass", f"a script that performs {what} is a person's act; an agent cannot write it", ASK
         return None
     if tool in READ_TOOLS:
         path = " ".join(str(inp.get(k) or "") for k in ("file_path", "path", "pattern"))

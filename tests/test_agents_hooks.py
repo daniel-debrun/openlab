@@ -135,6 +135,113 @@ def test_gate_on_edits_and_reads():
     assert hooks.gate("Write", {"file_path": "/w/notes.md", "content": "ask the person for a holdout look"}) is None
 
 
+# B5: the person verbs, spliced so this file's own edits pass the gate it tests
+HOLD = "openlab study " + "hold" + "out demo --reason x"
+AMEND = "openlab study " + "amend STUDY --per" + "son --reason '...'"
+APPROVE = "openlab study " + "app" + "rove demo"
+RESUME = "openlab agent " + "res" + "ume lead-1"
+LOOK = "study." + "hold" + "out('x')"
+
+
+@pytest.mark.parametrize("src", [
+    f'fix = "then {AMEND}"\n',
+    f'def hint(name):\n    return f"study {{name}} is sealed; ask the person: {AMEND}"\n',
+    f'from .errors import StudyError\n\ndef check():\n    raise StudyError("sealed", fix="{AMEND}")\n',
+    f'import sys\nprint("ask the person to run {HOLD}", file=sys.stderr)\n',
+    f'HINTS = {{"amend": "{AMEND}", "look": \'{HOLD}\', "ok": "{APPROVE}", "go": "{RESUME}"}}\n',
+    f'# the person runs: {HOLD}\nX = 1\n',
+    f'MSG = """\nthe person, at their terminal:\n    {HOLD}\n"""\n',
+    f'TIP = "call {LOOK} only as the person"\n',
+    f'from ..agents.person import pin_state, pinned_public\nfrom .personkey import fingerprint\n'
+    f'import os, re, json\nfrom pathlib import Path\nFIX = "{AMEND}"\n',
+])
+def test_a_py_that_only_shows_a_person_verb_passes_the_edit_gate(src):
+    """B5: a string shown to the person (an error's fix line, a hint) is no script that performs the act."""
+    assert hooks.guard("Write", {"file_path": "/w/openlab/study/instruments.py", "content": src}) is None, src
+
+
+def test_openlabs_own_spec_py_passes_the_edit_gate():
+    from openlab.study import spec
+    src = open(spec.__file__, encoding="utf-8").read()
+    assert hooks.guard("Write", {"file_path": "/w/openlab/study/spec.py", "content": src}) is None
+
+
+@pytest.mark.parametrize("src", [
+    # the verb in a process spawn, list or string
+    f'import subprocess\nsubprocess.run("{HOLD}".split())\n',
+    f'import subprocess\nsubprocess.run(["sh", "-c", "{HOLD}"])\n',
+    f'import subprocess\nsubprocess.call("{HOLD}", shell=True)\n',
+    f'import subprocess\nsubprocess.Popen("{APPROVE}".split()).wait()\n',
+    f'import subprocess\nsubprocess.check_output("{AMEND}", shell=True)\n',
+    f'import subprocess\nsubprocess.check_call(["bash", "-c", "{RESUME}"])\n',
+    f'from subprocess import run as r\nr("{HOLD}".split())\n',
+    f'import os\nos.system("{HOLD}")\n',
+    f'import os\nos.popen("{HOLD}").read()\n',
+    f'import os\nos.execvp("openlab", "{HOLD}".split())\n',
+    f'from os import system\nsystem("{HOLD}")\n',
+    f'import asyncio\nasyncio.run(asyncio.create_subprocess_shell("{HOLD}"))\n',
+    f'import asyncio\nasyncio.create_subprocess_exec(*"{HOLD}".split())\n',
+    # a string built, then passed through a variable
+    f'import subprocess\nCMD = "{HOLD}"\n\ndef go(c=CMD):\n    subprocess.run(c, shell=True)\n',
+    f'import os\nFIX = f"then {AMEND}"\nos.system(FIX.removeprefix("then "))\n',
+    # exec, eval, dynamic imports
+    f'exec("import os; os.system(\'{HOLD}\')")\n',
+    f'eval(compile("print(1)", "x", "exec"))\nM = "{HOLD}"\n',
+    f'__import__("subprocess").run("{HOLD}".split())\n',
+    f'import importlib\nimportlib.import_module("subprocess").run("{HOLD}".split())\n',
+    f'from importlib import import_module\nimport_module("os").system("{HOLD}")\n',
+    f'import runpy\nM = "{HOLD}"\n',
+    f'import os\ngetattr(os, "sys" + "tem")("{HOLD}")\n',
+    f'import os\ngetattr(os, "system")("{HOLD}")\n',
+    f'import pickle\nM = "{HOLD}"\npickle.loads(b"")\n',
+    f'M = "{HOLD}"\nprint(().__class__.__base__.__subclasses__())\n',
+    # in-process calls into openlab's CLI or person modules
+    f'from openlab.study.cli import main\nmain("{HOLD}".split()[1:])\n',
+    f'from openlab.agents import person\nM = "{HOLD}"\n',
+    f'from ..study import cli\ncli.main("{HOLD}".split()[1:])\n',
+    f'import openlab.__main__\nM = "{HOLD}"\n',
+    f'from .. import study as s\ns.cli.main("{HOLD}".split()[1:])\n',
+    f'from ..agents.person import pin_state, unlock\nM = "{HOLD}"\n',
+    # the verb in code, a parse failure, or a file that is not what it looks like
+    f'import openlab\nopenlab.study.open("demo").{LOOK.split(".", 1)[1]}\n',
+    f'{HOLD}\n',
+    f'#!/bin/sh\n{HOLD}\n',
+    f'# -*- coding: utf-7 -*-\nM = "{HOLD}"\n',
+    f'import openlab\nM = "x"  # hint\ropenlab.{LOOK}\n',
+    f'X = f"{{{LOOK}}}"\n',
+])
+def test_a_py_that_can_run_a_person_verb_stays_refused(src):
+    g = hooks.guard("Write", {"file_path": "/w/peek.py", "content": src})
+    assert g and g[0] == "bypass", src
+
+
+@pytest.mark.parametrize("path,src", [
+    ("/w/peek.sh", f'echo "{HOLD}"\n'),
+    ("/w/peek.bash", f'MSG="{AMEND}"\n'),
+    ("/w/peek", f'#!/usr/bin/env python3\nFIX = "{AMEND}"\n'),
+    ("/w/Makefile", f'look:\n\t{HOLD}\n'),
+    ("/w/peek.js", f'const {{ execSync }} = require("child_process");\nexecSync("{HOLD}");\n'),
+    ("/w/peek.ts", f'import {{ spawn }} from "node:child_process";\nconst m = "{HOLD}";\n'),
+])
+def test_scripts_that_are_not_python_keep_the_strict_edit_gate(path, src):
+    g = hooks.guard("Write", {"file_path": path, "content": src})
+    assert g and g[0] == "bypass", path
+
+
+def test_an_edit_is_judged_on_the_file_it_leaves(tmp_path):
+    shown = tmp_path / "hint.py"
+    shown.write_text('from .errors import StudyError\nFIX = "x"\n')
+    edit = {"file_path": str(shown), "old_string": 'FIX = "x"', "new_string": f'FIX = "{AMEND}"'}
+    assert hooks.guard("Edit", edit) is None
+    assert hooks.guard("MultiEdit", {"file_path": str(shown), "edits": [dict(edit, file_path=None)]}) is None
+    runs = tmp_path / "runs.py"
+    runs.write_text('import subprocess\nFIX = "x"\n\ndef go():\n    subprocess.run(FIX, shell=True)\n')
+    assert hooks.guard("Edit", dict(edit, file_path=str(runs)))[0] == "bypass"
+    # an edit the file cannot take, or a file that is not there, is judged as before
+    assert hooks.guard("Edit", dict(edit, old_string="nope"))[0] == "bypass"
+    assert hooks.guard("Edit", dict(edit, file_path=str(tmp_path / "gone.py")))[0] == "bypass"
+
+
 def test_pause_denies_every_tool_with_the_reason(ws):
     run(ws, "SessionStart", source="startup")
     run(ws, "PreToolUse", tool_name="Agent", tool_use_id="toolu_B", tool_input={"subagent_type": "openlab-replicator"})
