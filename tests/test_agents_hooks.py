@@ -698,6 +698,8 @@ def test_real_reads_of_the_record_are_still_refused(cmd):
     ["study", "release", "--help"], ["inbox", "approve", "--help"], ["inbox", "deny", "-h"],
     ["inbox", "answer", "--help"], ["agent", "resume", "--help"], ["person", "init", "--help"],
     ["person", "pin", "-h"], ["person", "rotate", "--help"], ["person", "act", "box", "--help"],
+    ["experiment", "start", "--help"], ["experiment", "start", "tender", "x", "-h"],
+    ["experiment", "job", "tender", "x", "scan", "--now", "--help"],
 ])
 def test_help_of_every_person_verb_exits_in_argparse_before_any_act(argv, tmp_path, monkeypatch, capsys):
     """Why the guard lets `openlab <person verb> --help` through: argparse prints the usage and exits while parsing,

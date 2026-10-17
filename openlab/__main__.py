@@ -5,6 +5,7 @@
     openlab app --root DIR                the workspace server: the web UI and the tool API
     openlab agents | agent | watch | inbox  the agents working on the studies, and what needs a person
     openlab instrument register|list|show|verify|run|runs  registered programs that act outside the sandbox
+    openlab experiment new|list|status|start|kill|...  a study's instruments on a schedule, then a conclusion
     openlab guide | tools | tool NAME     the tools your agent has, from a shell
     openlab doctor [--json]               what works here, and the one-line fixes
     openlab verify FILE.sig.json          check a signed file offline
@@ -55,6 +56,9 @@ COMMANDS: dict = {
     "instrument": ("openlab.study.instrument_cli:main", "the workspace's instruments, registered immutable programs "
                                                        "that measure or act outside the sandbox: register (a person's), "
                                                        "list, show, verify, run, runs"),
+    "experiment": ("openlab.study.experiment_cli:main", "a study's experiments: its pinned instruments on a schedule "
+                                                       "for a set number of passes, then an agent's conclusion: new, "
+                                                       "list, status, request, start (a person's), kill, job, react"),
     "doctor": ("openlab.doctor:main", "what works in this install, and the one line that fixes what does not"),
     "verify": ("openlab.__main__:verify_main", "check a signed file (FILE.sig.json) offline"),
     "hook": ("openlab.agents.cli:main+", "a Claude Code hook (stdin JSON; written by openlab init --claude)"),

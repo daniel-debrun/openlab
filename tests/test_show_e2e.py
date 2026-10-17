@@ -159,7 +159,8 @@ def test_the_live_page_end_to_end(home, server, chrome):
             assert await p.until("document.querySelector('#sessNav') ? document.body.innerText.includes('child-1') : document.body.innerText.includes('child-1')")
 
             # every view draws
-            for v in ("activity", "roadmap", "board", "burn", "raid", "ledger", "paper", "queue", "settings", "inbox"):
+            for v in ("activity", "roadmap", "board", "experiments", "burn", "raid", "ledger", "paper", "queue", "settings",
+                      "inbox"):
                 await p.js(f"document.querySelector('[data-view={v}]').click()")
                 await asyncio.sleep(0.3)
                 assert await p.js(f"document.querySelector('#v-{v}') ? getComputedStyle(document.querySelector('#v-{v}')).display !== 'none' : true")

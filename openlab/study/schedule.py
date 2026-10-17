@@ -12,6 +12,7 @@ import os
 import shlex
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 _RANGES = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))
@@ -50,16 +51,34 @@ def parse_cron(expr: str) -> tuple:
     return tuple(sets) + (parts[2] != "*", parts[4] != "*")
 
 
+def _day_ok(fields: tuple, t: dt.datetime) -> bool:
+    mi, hr, dom, mon, dow, dom_set, dow_set = fields
+    day = ((t.day in dom) or (t.isoweekday() % 7 in dow)) if dom_set and dow_set else \
+        (t.day in dom and t.isoweekday() % 7 in dow)
+    return t.month in mon and day
+
+
+def matches(expr: str, t: dt.datetime) -> bool:
+    """Whether the minute `t` (a wall-clock time in the schedule's own zone) is one the expression fires at."""
+    f = parse_cron(expr)
+    return _day_ok(f, t) and t.hour in f[1] and t.minute in f[0]
+
+
 def next_run(expr: str, after: dt.datetime | None = None) -> dt.datetime:
-    """The first minute strictly after `after` (local time, default now) that the expression matches."""
-    mi, hr, dom, mon, dow, dom_set, dow_set = parse_cron(expr)
+    """The first minute strictly after `after` (local time, default now) that the expression matches. A day or an
+    hour that cannot match is skipped whole, so a rare schedule costs a few hundred steps, not a year of minutes."""
+    f = parse_cron(expr)
     t = (after or dt.datetime.now()).replace(second=0, microsecond=0) + dt.timedelta(minutes=1)
-    for _ in range(366 * 24 * 60):
-        day_ok = ((t.day in dom) or (t.isoweekday() % 7 in dow)) if dom_set and dow_set else \
-                 (t.day in dom and t.isoweekday() % 7 in dow)
-        if t.month in mon and day_ok and t.hour in hr and t.minute in mi:
+    limit = t + dt.timedelta(days=366)
+    while t <= limit:
+        if not _day_ok(f, t):
+            t = t.replace(hour=0, minute=0) + dt.timedelta(days=1)
+        elif t.hour not in f[1]:
+            t = t.replace(minute=0) + dt.timedelta(hours=1)
+        elif t.minute not in f[0]:
+            t += dt.timedelta(minutes=1)
+        else:
             return t
-        t += dt.timedelta(minutes=1)
     raise ValueError(f"cron {expr!r} never matches within a year")
 
 
@@ -107,6 +126,21 @@ def _write(lines: list) -> None:
     subprocess.run([_program(), "-"], input="\n".join(lines) + "\n", text=True, check=True)
 
 
+@contextmanager
+def _editing():
+    """The user's crontab, read and written by one openlab process at a time (a lock per user, across workspaces),
+    so two installs never drop each other's lines."""
+    import fcntl
+    import tempfile
+    path = Path(tempfile.gettempdir()) / f"openlab-crontab-{os.getuid()}.lock"
+    with open(path, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def installed(root: Path, doc: str) -> str | None:
     tag = _tag(Path(root), doc)
     return next((l for l in _crontab() if l.endswith(tag)), None)
@@ -116,17 +150,45 @@ def on(root: Path, doc: str, spec: dict, log: Path) -> str:
     """Install (or replace) this study's line; returns it."""
     tag, line = _tag(Path(root), doc), cron_line(root, doc, spec, log)
     log.parent.mkdir(parents=True, exist_ok=True)
-    _write([l for l in _crontab() if not l.endswith(tag)] + [line])
+    with _editing():
+        _write([l for l in _crontab() if not l.endswith(tag)] + [line])
     return line
 
 
 def off(root: Path, doc: str) -> bool:
     tag = _tag(Path(root), doc)
-    lines = _crontab()
-    keep = [l for l in lines if not l.endswith(tag)]
-    if len(keep) != len(lines):
-        _write(keep)
+    with _editing():
+        lines = _crontab()
+        keep = [l for l in lines if not l.endswith(tag)]
+        if len(keep) != len(lines):
+            _write(keep)
     return len(keep) != len(lines)
+
+
+# --- lines another openlab feature owns, by a tag prefix (openlab.study.experiments) -----------------------------------
+def _tag_of(line: str) -> str:
+    """The `# openlab...` tag a line ends with ('' for none): the last ` # openlab` comment of the line."""
+    i = line.rfind(" # openlab")
+    return line[i + 1:].rstrip() if i >= 0 else ""
+
+
+def tagged(prefix: str) -> list:
+    """The crontab's lines whose tag starts with `prefix` (such as `# openlab-experiment:<ws>::<study>::<name>::`)."""
+    return [l for l in _crontab() if _tag_of(l).startswith(prefix)]
+
+
+def replace_tagged(prefix: str, lines: list) -> list:
+    """Remove every line tagged under `prefix`, then add `lines` (each must carry such a tag); every other line of the
+    crontab is kept as it was. Returns the lines removed."""
+    bad = [l for l in lines if not _tag_of(l).startswith(prefix)]
+    if bad:
+        raise ValueError(f"a line without the tag {prefix!r}: {bad[0]!r}")
+    with _editing():
+        cur = _crontab()
+        gone = [l for l in cur if _tag_of(l).startswith(prefix)]
+        if gone or lines:
+            _write([l for l in cur if not _tag_of(l).startswith(prefix)] + list(lines))
+    return gone
 
 
 def status(root: Path, doc: str, spec: dict | None, cron_log: Path) -> dict:

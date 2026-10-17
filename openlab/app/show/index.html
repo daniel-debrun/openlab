@@ -588,6 +588,44 @@
   .dcard.new{cursor:default;outline:2px solid #0b57d0}.dcard.new textarea{width:100%;border-radius:8px;min-height:60px;margin:4px 0}
   .dres summary{font-size:12px;color:var(--mute);cursor:pointer;margin:6px 0}
 
+  /* experiments: one card each, then the instruments */
+  .xcard{border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:14px}
+  .xcard .xh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .xcard .xh b{font-size:14.5px}
+  .xcard .xh .stepl{margin:0 0 0 auto;max-width:420px}
+  .xst{font-size:10.5px;font-weight:700;letter-spacing:.03em;border-radius:4px;padding:1px 7px;border:1px solid;text-transform:uppercase;white-space:nowrap}
+  .xst.draft{color:#5b6672;border-color:#d8dee6;border-style:dashed;background:#f6f7f9}
+  .xst.requested{color:#8a5d00;border-color:#f0d58a;background:#fff8e6}
+  .xst.running{color:#1c5cab;border-color:#b4cff3;background:#eef5fe}
+  .xst.concluded,.xst.reacted{color:#0a6e0a;border-color:#a8dca8;background:#effaef}
+  .xst.reacting{color:#1c5cab;border-color:#b4cff3;border-style:dashed;background:#fff}
+  .xst.killed{color:#5b6672;border-color:#b3bcc6;background:#f4f5f7}
+  .xst.failed,.xst.error{color:#a52828;border-color:#efb4b4;background:#fff4f4}
+  .xpur{margin:6px 0 8px;color:var(--ink2)}
+  .xbars{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:8px 0}
+  .xbar small{color:var(--mute);font-size:11.5px}.xbar small b{color:var(--ink2)}
+  .xbar .bar{height:7px;border-radius:4px;background:#e3e6eb;overflow:hidden;margin:4px 0 3px;display:flex}
+  .xbar .bar i{display:block;height:100%;background:var(--acc)}.xbar .bar i.bad{background:#d03b3b}.xbar .bar i.time{background:#8a96a3}
+  .xmeta{display:flex;gap:4px 16px;flex-wrap:wrap;font-size:12px;color:var(--mute);margin:4px 0 10px}
+  .xmeta b{color:var(--ink2);font-weight:600}
+  .xruns{display:flex;gap:3px;flex-wrap:wrap;max-width:420px}
+  .xrun{font:11px var(--mono);border:1px solid var(--line2);border-radius:4px;padding:0 5px;background:#fff;color:var(--ink2);white-space:nowrap}
+  .xrun.ok{border-color:#a8dca8;color:#0a6e0a}.xrun.bad{border-color:#efb4b4;color:#a52828;background:#fff4f4}
+  button.xrun:hover{border-color:var(--acc);color:var(--acc)}
+  .xend{margin-top:10px;font-size:12.5px;padding:7px 10px;border-radius:7px;background:var(--soft);border:1px solid var(--line)}
+  .xend.failed{background:#fff4f4;border-color:#efb4b4}
+  .xre{margin-top:8px;font-size:12.5px;padding:8px 10px;border-radius:7px;border:1.25px dashed var(--ol);background:#fbfbfc}
+  .xre.done{border-style:solid}
+  .xre .v{font-size:10.5px;font-weight:700;border-radius:4px;padding:1px 6px;margin-right:4px}
+  .xre .v.met{color:#0a6e0a;background:#e3f5e3}.xre .v.not_met{color:#a52828;background:#fbe4e4}.xre .v.inconclusive{color:#5b6672;background:#eef1f4}
+  .xout{margin-top:8px;border:1px solid var(--line2);border-radius:8px;background:var(--soft)}
+  .xout .xoh{display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:12px;border-bottom:1px solid var(--line)}
+  .xout .xoh .b{margin-left:auto}
+  .xout pre{margin:0;padding:8px 10px;max-height:360px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:11.5px/1.45 var(--mono)}
+  .xcap{font-size:10.5px;border:1px solid var(--line2);border-radius:4px;padding:0 5px;margin:0 2px 2px 0;display:inline-block;color:var(--ink2)}
+  .xcap.live{border-color:#efb4b4;color:#a52828;background:#fff4f4}
+  .ufold{font:11px/1.4 var(--mono);color:var(--ink2);white-space:pre-wrap;margin:4px 0 0;max-height:7.2em;overflow:hidden}
+
   .foot{flex:none;height:26px;border-top:1px solid var(--line);background:var(--soft);display:flex;align-items:center;gap:8px;padding:0 14px;font-size:11.5px;color:var(--mute)}
   .foot b{color:#8a5d00;background:#fff4dc;border-radius:4px;padding:0 6px;font-weight:600}
 </style>
@@ -603,6 +641,7 @@
       <button class="ni" data-view="inbox"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 9.5h3.5l1 2h3l1-2H14M2 9.5l1.8-6h8.4l1.8 6V13H2z"/></svg>Inbox<span class="ct hot" id="nInbox"></span></button>
       <button class="ni" data-view="roadmap"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h6M5 8h7M4 12.5h8"/></svg>Roadmap</button>
       <button class="ni" data-view="board"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="3.6" height="11" rx="1"/><rect x="6.2" y="2.5" width="3.6" height="7" rx="1"/><rect x="10.9" y="2.5" width="3.6" height="9" rx="1"/></svg>Board</button>
+      <button class="ni" data-view="experiments"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 1.8h4M6.8 1.8v4.4L2.6 13a1 1 0 00.9 1.5h9a1 1 0 00.9-1.5L9.2 6.2V1.8"/><path d="M4.4 10h7.2"/></svg>Experiments<span class="ct" id="nExp"></span></button>
       <button class="ni" data-view="burn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 14V2M2 14h12"/><path d="M4 12l3-3 2 1.5L13.5 5"/></svg>Burn</button>
       <button class="ni" data-view="raid"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.8l5.5 2v4.1c0 3.2-2.3 5.4-5.5 6.3C4.8 13.3 2.5 11.1 2.5 7.9V3.8z"/><path d="M8 5v3.5M8 10.6v.2"/></svg>RAID<span class="ct" id="nRaid"></span></button>
       <button class="ni" data-view="ledger"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="1.5" width="11" height="13" rx="1.5"/><path d="M5 5h6M5 8h6M5 11h3.5"/></svg>Audit ledger</button>
@@ -683,6 +722,7 @@
       </div>
     </section>
 
+    <section class="view" id="v-experiments"><div class="pg"><div class="pg-in" id="experiments" style="max-width:1180px"></div></div></section>
     <section class="view" id="v-ledger"><div class="pg"><div class="pg-in" id="ledger" style="max-width:1180px"></div></div></section>
     <section class="view" id="v-burn"><div class="pg"><div class="pg-in" id="burn" style="max-width:980px"></div></div></section>
     <section class="view" id="v-raid"><div class="pg"><div class="pg-in" id="raid" style="max-width:1180px"></div></div></section>
@@ -757,7 +797,7 @@
   const stPill = (st) => `<span class="stp" style="background:${ST[st].fill};color:${ST[st].ink};border-color:${ST[st].line}">${LAB.STATES[st].label}</span>`;
   const evChip = (ev, who) => `<span class="evc ${ev}" title="${esc(evLong(ev, who))}">${ev === "bad" ? "! " : ""}${ev === "rep" && isP(who) ? "their word" : LAB.EVIDENCE[ev].short}</span>`;
 
-  const VIEWS = ["activity", "inbox", "roadmap", "board", "burn", "raid", "ledger", "paper", "queue", "settings"];
+  const VIEWS = ["activity", "inbox", "roadmap", "board", "experiments", "burn", "raid", "ledger", "paper", "queue", "settings"];
   let view = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "activity", cur = LIVEM ? null : "lead-7c0f", selNode = null, selPlan = null, ann = null, bWho = "all", bGrp = "cols";
   const ver = {}, inboxNote = {};
   let clOpen = false;
@@ -784,6 +824,7 @@
     $("#nInbox").textContent = D.inbox.length || "";
     $("#nSpin").style.display = inProgress() ? "" : "none";
     $("#nQueue").textContent = D.queue.length;
+    $("#nExp").textContent = (D.experiments || []).filter((x) => x.state === "running").length || "";
     $("#nRaid").textContent = raidItems().filter((x) => (x.t === "R" || x.t === "I") && !CLOSED.has(x.st)).length;
     const open = D.docComments.filter((c) => !c.draft && !c.resolved).length;
     $("#nCmt").textContent = LIVEM ? "" : open;
@@ -796,7 +837,7 @@
     D.sessions.filter((s) => s.parent && !sess(s.parent)).forEach((s) => walk(s, 0));
     $("#sessNav").innerHTML = h;
     $("#peopleNav").innerHTML = D.people.map((p) => `<button class="sn${p.id === cur && view === "roadmap" ? " on" : ""}" data-sess="${esc(p.id)}" title="${esc(p.q)}">${av(p.id, 14)}<span class="id">${esc(p.id)}</span><span class="st">${esc(p.state)}${p.until ? " · " + esc(p.until) : ""}${p.cap ? ` · ${esc(p.hours)} h` : p.key ? " · key" : ""}</span></button>`).join("");
-    const names = { ledger: "Audit ledger", burn: "Burn", raid: "RAID", board: "Board", roadmap: "Roadmap", paper: "Workspace", inbox: "Inbox", queue: "Machine queue", activity: "Activity", settings: "Settings" };
+    const names = { ledger: "Audit ledger", burn: "Burn", raid: "RAID", board: "Board", experiments: "Experiments", roadmap: "Roadmap", paper: "Workspace", inbox: "Inbox", queue: "Machine queue", activity: "Activity", settings: "Settings" };
     $("#crumb").innerHTML = `${esc(curWs())} <span>/</span> <b>${names[view]}</b>${view === "roadmap" ? ` <span>/</span> ${esc(cur)}` : ""}`;
     $$(".view").forEach((v) => v.classList.toggle("on", v.id === "v-" + view));
     if (location.hash.slice(1) !== view) history.replaceState(null, "", "#" + view);
@@ -2212,11 +2253,105 @@
     machines = null; await loadMachines(); renderSettings(); toast(rm ? `Removed ${rm.dataset.mrm}.` : "Added: its usage shows in Machine queue.");
   });
 
+  // ---------- experiments: each study's scheduled instrument runs, as experiment_status reads them; then the instruments ----------
+  let xOut = null;                                   // {key, title, text}: a run's output or a version's usage, under its card
+  const XSTATE = { draft: "set up, not asked for yet", requested: "waiting for you to start it", running: "running on the crontab, unattended",
+    concluded: "its stop rule was met", killed: "killed, with a reason", failed: "ended on its failure limit", reacting: "ended: its reaction agent is at work",
+    reacted: "concluded by its reaction agent", error: "cannot be read" };
+  const xt = (iso) => (!iso ? "—" : LAB.hm ? LAB.hm(iso) : String(iso).replace("T", " ").slice(5, 16));
+  const pct = (x) => `${Math.round(Math.max(0, Math.min(1, +x || 0)) * 100)}%`;
+  const xkey = (x) => [x.study, x.name].join("/");   // a key, escaped wherever it is drawn
+  function xstep(x) {                                // the Roadmap step it implements, from the owner's latest plan
+    if (!x.plan_step) return `<span class="src" style="margin-left:auto">no Roadmap step</span>`;
+    const p = latestOf(x.owner), n = p && p.nodes.find((m) => m.id === x.plan_step);
+    if (!n) return `<span class="src" style="margin-left:auto">step ${esc(x.plan_step)} of ${esc(x.owner || "?")}: not in its plan</span>`;
+    return `<button class="stepl ${esc(n.ev || "rep")}" data-node="${esc(n.id)}" data-plan="${esc(x.owner)}" data-open="roadmap" title="Open the step on the Roadmap">Roadmap: ${esc(x.owner)} · ${esc(n.title)} · ${LAB.STATES[n.state].label}</button>`;
+  }
+  const xrunChip = (r, key) => { const label = `${xt(r.at).slice(-5)} ${r.ok ? "✓" : "✗"}`, tip = `${r.slot}: ${r.run || "no run"} ${r.error || `exit ${r.exit}`}${r.off_schedule ? " (off schedule)" : ""}`;
+    return r.registry_run ? `<button class="xrun ${r.ok ? "ok" : "bad"}" data-xrun="${esc(r.registry_run)}" data-xkey="${esc(key)}" title="${esc(tip)}: show its output">${esc(label)}</button>`
+      : `<span class="xrun bad" title="${esc(tip)}">${esc(label)}</span>`; };
+  const xoutPanel = (key) => (xOut && xOut.key === key ? `<div class="xout"><div class="xoh"><b>${esc(xOut.title)}</b><button class="b sm" data-xclose="1">Close</button></div><pre>${esc(xOut.text)}</pre></div>` : "");
+  function xcard(x) {
+    if (!x.spec) return `<div class="xcard"><div class="xh"><span class="xst ${esc(x.state)}">${esc(x.state)}</span><b>${esc(x.name || "?")}</b><span class="src">${esc(x.study)}${x.file ? " · " + esc(x.file) : ""}</span></div>
+      <div class="refused">${esc(x.spec_error || "no spec")}</div></div>`;
+    const p = x.progress, key = xkey(x), r = x.reaction || {}, ended = !!x.end;
+    const passes = p.target ? `<div class="xbar"><small>Passes</small><div class="bar"><i style="width:${pct(p.passes_ok / p.target)}"></i><i class="bad" style="width:${pct(p.passes_failed / p.target)}"></i></div>
+        <small><b>${esc(p.passes_ok)}</b> of ${esc(p.target)} ok · ${esc(p.passes_failed)} failed${p.max_failures ? ` (${esc(p.max_failures)} in a row ends it${p.in_a_row ? `; ${esc(p.in_a_row)} now` : ""})` : ""}</small></div>`
+      : `<div class="xbar"><small>Passes</small><div class="bar"></div><small><b>${esc(p.passes_ok)}</b> ok · ${esc(p.passes_failed)} failed · no pass target: it ends at its date</small></div>`;
+    const time = p.until ? `<div class="xbar"><small>Time</small><div class="bar"><i class="time" style="width:${pct(p.time_fraction)}"></i></div><small>${p.started ? `<b>${dur(p.elapsed_s)}</b> so far` : "not started"} · until ${esc(xt(p.until))}</small></div>`
+      : `<div class="xbar"><small>Time</small><div class="bar"></div><small>${p.started ? `<b>${dur(p.elapsed_s)}</b> ${ended ? "in all" : "so far"}` : "not started"} · no end date: it ends on its passes</small></div>`;
+    const rq = x.request, meta = [p.started ? `started <b>${esc(xt(p.started))}</b>` : "", p.last_pass ? `last pass <b>${esc(xt(p.last_pass))}</b>` : "",
+      `a pass: <b>${x.pass_rule === "cycle" ? "every job ran once since the last (cycle)" : `one successful run of ${esc(x.pass_rule)}`}</b>`,
+      rq ? `asked by <b>${esc(rq.by)}</b>${rq.inbox ? ` · inbox #${esc(rq.inbox)} ${esc(rq.status || "")}` : ""}` : "",
+      x.start ? `started by <b>${esc(x.start.by)}</b>: ${esc(x.start.reason)}` : ""].filter(Boolean).map((m) => `<span>${m}</span>`).join("");
+    const jobs = `<table class="t"><tr><th>Job</th><th>Instrument</th><th>Schedule</th><th>Next</th><th>Last runs, newest first</th></tr>${x.jobs.map((j) => `<tr>
+        <td><b>${esc(j.name)}</b>${x.state === "running" && !j.installed ? ` <span class="flag" title="Its crontab line is gone: kill the experiment, or ask the person to look">NOT INSTALLED</span>` : ""}</td>
+        <td class="m">${esc(j.instrument)} = ${esc(j.pin)}<div class="src">${esc((j.args || []).join(" ")) || "(no args)"}</div></td>
+        <td class="m">${esc(j.cron)}<div class="src">${esc(j.tz || "local time")}</div></td>
+        <td>${j.next ? esc(xt(j.next)) : `<span class="src">—</span>`}</td>
+        <td><div class="xruns">${(j.runs || []).map((r) => xrunChip(r, key)).join("") || `<span class="src">no runs yet</span>`}</div><div class="src">${esc(j.n_runs)} runs · ${esc(j.n_failed)} failed</div></td></tr>`).join("")}</table>`;
+    const fails = (x.failures || []).length ? `<div class="ibh" style="margin:12px 0 4px">Failures, newest first</div>${x.failures.slice(0, 5).map((f) => `<div class="a3" title="${esc(f.error)}"><span class="t">${esc(xt(f.at))}</span>${esc(f.job)}: ${esc(f.error)}${f.run ? ` · ${esc(f.run)}` : ""}</div>`).join("")}` : "";
+    const end = ended ? `<div class="xend ${esc(x.end.state)}">Ended <b>${esc(x.end.state)}</b> at ${esc(xt(x.end.at))}: ${esc(x.end.reason)}</div>` : "";
+    const b = r.budget || {}, money2 = b.usd ? `$${b.usd}` : "";
+    const who = r.agent ? `<button class="chip" data-sess="${esc(r.agent)}">${esc(r.agent)}</button> ${esc(r.status || "")}${r.usd ? ` · ${money(r.usd)}` : ""}` : "";
+    const rx = r.verdict ? `<div class="xre done"><span class="v ${esc(r.verdict)}">${esc(r.verdict.replace("_", " "))}</span><b>Conclusion</b> by ${esc(r.by)}: ${esc(r.conclusion)}
+        ${(r.records || []).length ? `<div class="src" style="margin-top:4px">wrote ${r.records.map((id) => `<code>${esc(id)}</code>`).join(", ")}</div>` : ""}</div>`
+      : r.agent ? `<div class="xre">Reaction: the ${esc(r.role)} agent ${who} is reading the runs; its conclusion lands here.</div>`
+      : r.spawn_error ? `<div class="xre" style="border-color:var(--alarm)">The reaction agent did not start: ${esc(r.spawn_error)}. <code>openlab experiment react ${esc(x.study)} ${esc(x.name)} --spawn</code> fires it again.</div>`
+      : `<div class="xre">When it ends, a ${esc(r.role)} agent is fired to react (${esc([money2, b.minutes ? b.minutes + " min" : "", b.turns ? b.turns + " turns" : ""].filter(Boolean).join(", "))}).</div>`;
+    return `<div class="xcard" data-xcard="${esc(key)}"><div class="xh"><span class="xst ${esc(x.state)}" title="${esc(XSTATE[x.state] || "")}">${esc(x.state)}</span><b>${esc(x.name)}</b><span class="src">${esc(x.study)} · ${esc(x.file)}</span>${xstep(x)}</div>
+      <div class="xpur">${esc(x.purpose)}</div>
+      ${x.spec_error ? `<div class="refused">${esc(x.spec_error)}</div>` : ""}${x.edited ? `<div class="note2">The spec file was edited after the start. It is not run: the experiment runs the spec it was started with, and a changed one is a new experiment, under a new name.</div>` : ""}
+      ${x.state === "requested" ? `<div class="note2">Waiting for you: approve inbox #${esc((rq || {}).inbox)} or run <code>openlab experiment start ${esc(x.study)} ${esc(x.name)}</code>, signed with your passphrase.</div>` : ""}
+      <div class="xbars">${passes}${time}</div><div class="xmeta">${meta}</div>${jobs}${xoutPanel(key)}${fails}${end}${rx}</div>`;
+  }
+  function renderExperiments() {
+    const xs = D.experiments || [], ins = D.instruments || [], n = (s) => xs.filter((x) => x.state === s).length;
+    const pill = (st, t) => `<span class="sum"><span class="xst ${st}">${st}</span><b>${n(st)}</b>${t}</span>`;
+    $("#experiments").innerHTML = `<h1>Experiments</h1><p class="sub">Each study's experiments: its pinned instruments run on a schedule, unattended, for a set number of passes; then the experiment ends and an agent is fired to conclude it. An agent sets one up and asks; you start it (it runs outside the sandbox). Read from the studies' records.</p>
+      <div class="sums">${pill("running", " running")}${pill("requested", " waiting for you")}${pill("reacting", " reacting")}${pill("reacted", " concluded")}</div>
+      ${xs.length ? xs.map(xcard).join("") : `<div class="xcard"><span class="src">No experiment yet. An agent writes one (experiment_new) and asks you to start it (experiment_request); see docs/experiments.md.</span></div>`}
+      <h2 class="ibh" style="margin-top:26px">Instruments</h2><p class="sub" style="margin:0 0 8px">Every registered version: what it may do, its runs, the studies that pin it, and its usage (its <code>--help</code>, as registered). Registering a version is your act: <code>openlab instrument register</code>.</p>
+      <table class="t"><tr><th>Version</th><th>Capabilities</th><th>Runs</th><th>Last run</th><th>Pinned by</th><th>Usage</th></tr>
+      ${ins.length ? ins.map((v) => `<tr><td class="m"><b>${esc(v.id)}</b><div class="src">${esc(v.runtime)} · ${v.external ? "external: verified, never copied" : `${esc(v.files)} files`} · ${esc(v.reason)}</div></td>
+        <td>${(v.capabilities || []).map((c) => `<span class="xcap${c === "live-order" ? " live" : ""}">${esc(c)}</span>`).join("")}</td>
+        <td>${esc(v.runs)}</td>
+        <td>${v.last_run ? `<button class="xrun ${v.last_run.exit === 0 ? "ok" : "bad"}" data-xrun="${esc(v.last_run.id)}" data-xkey="instruments" title="${esc((v.last_run.args || []).join(" "))}: show its output">${esc(xt(v.last_run.at))} exit ${esc(v.last_run.exit)}</button><div class="src">${esc(v.last_run.study || "no study")}</div>` : `<span class="src">never run</span>`}</td>
+        <td>${(v.pinned_by || []).map((p) => `<span class="chip">${esc(p.study)}: ${esc(p.alias)}</span>`).join(" ") || `<span class="src">no study</span>`}</td>
+        <td><span class="src">${esc(v.usage_head)}</span>${(v.usage_lines || []).length ? `<pre class="ufold">${esc(v.usage_lines.join("\n"))}</pre><button class="b sm" data-xusage="${esc(v.id)}">Whole usage</button>` : ""}</td></tr>`).join("")
+        : `<tr><td colspan="6" class="src">No instrument is registered in this research.</td></tr>`}</table>${xoutPanel("instruments")}`;
+  }
+  function xfmt(o) {                                 // instrument_output's result as text: its logs, then each output
+    const part = (k, t) => (t && t.text ? `--- ${k} (${t.lines} lines) ---\n${t.text.replace(/\n$/, "")}` : `--- ${k}: empty ---`);
+    return [[o.id + ":", o.instrument, "exit", o.exit + (o.timed_out ? " (timed out)," : ","), o.started, "->", o.ended + ",", "args",
+      (o.args || []).join(" ") || "(none)"].join(" "),                // text for a <pre>, escaped when drawn
+      part("stdout", o.stdout), part("stderr", o.stderr),
+      ...Object.entries(o.outputs || {}).map(([k, v]) => (v.content != null ? `--- ${k} (${v.bytes} B) ---\n${v.content.replace(/\n$/, "")}` : `--- ${k} (${v.bytes} B): ${v.withheld} ---`))].join("\n");
+  }
+  $("#experiments").addEventListener("click", async (e) => {
+    const c = e.target.closest("[data-xclose]"), run = e.target.closest("[data-xrun]"), us = e.target.closest("[data-xusage]");
+    if (c) { xOut = null; return renderExperiments(); }
+    if (run) {
+      const key = run.dataset.xkey, id = run.dataset.xrun;
+      if (!LIVEM) { xOut = { key, title: `${id} (demo)`, text: `${id}: exit 0\n--- stdout (2 lines) ---\nfetched 24 hours for 112 stations\nwrote obs.json\n--- obs.json (2048 B) ---\n[{"station": "KJFK", "t": 14.2}, ...]` }; return renderExperiments(); }
+      xOut = { key, title: id, text: "reading…" }; renderExperiments();
+      const env = await LAB.api("instrument_output", { run: id });
+      xOut = { key, title: id, text: env.ok ? xfmt(env.result) : `${env.error}${env.meaning ? ": " + env.meaning : ""}` }; return renderExperiments();
+    }
+    if (us) {
+      const id = us.dataset.xusage;
+      if (!LIVEM) { const v = (D.instruments || []).find((x) => x.id === id) || {}; xOut = { key: "instruments", title: `${id}: usage`, text: (v.usage_lines || []).join("\n") }; return renderExperiments(); }
+      const env = await LAB.api("instrument_show", { ref: id, usage_only: true });
+      xOut = { key: "instruments", title: `${id}: usage`, text: env.ok ? (env.result.usage.text || env.result.usage.head) : env.error }; return renderExperiments();
+    }
+  });
+
   function render() {
     renderShell();
     if (view === "roadmap" || view === "board") renderLegend();
     if (view === "roadmap") renderRoadmap();
     if (view === "board") renderBoard();
+    if (view === "experiments") renderExperiments();
     if (view === "ledger") renderLedger();
     if (view === "burn") renderBurn();
     if (view === "raid") renderRaid();
@@ -2404,6 +2539,7 @@
     { g: "Go to", t: "RAID", hint: "risks, assumptions, issues, dependencies", run: () => go("raid") },
     { g: "Go to", t: "Board", hint: "backlog · ready · in progress · waiting · done", run: () => go("board") },
     { g: "Go to", t: "Roadmap", run: () => go("roadmap") },
+    { g: "Go to", t: "Experiments", hint: "scheduled instrument runs, their progress, and the instruments", run: () => go("experiments") },
     { g: "Go to", t: "Workspace", hint: "the research's files: the paper, the README, the code, the release", run: () => go("paper") },
     { g: "Go to", t: "Inbox", hint: `${D.inbox.length} waiting`, run: () => go("inbox") },
     { g: "Go to", t: "Machine queue", run: () => go("queue") },

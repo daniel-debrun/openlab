@@ -101,7 +101,9 @@ kinds are `holdout`, `amend`, `approval`, `budget`, `screen`, `fresh` (`{"why": 
 another study uses), `continues` (`{"continues": "../demo"}`: share that study's trial ledger), `compute`
 (`{"gpus": 2, "hours": 6}`: another machine, see below), `instrument` (the exact registration of an instrument
 version: `{"name", "entry", "source", "capabilities", ...}`; see [instruments.md](instruments.md)), `instrument_run`
-(one run of a live-order instrument: `{"instrument": "NAME@VERSION", "args": [...]}`), `question` (`{"choices": [...], "multi": false,
+(one run of a live-order instrument: `{"instrument": "NAME@VERSION", "args": [...]}`), `experiment` (starting a
+study's experiment: `{"study", "name"}`, with its spec's sha; the `experiment_request` tool files it; see
+[experiments.md](experiments.md)), `question` (`{"choices": [...], "multi": false,
 "other": true}`: answered in `openlab show`, unsigned; see [show.md](show.md#questions)) and `other`; a
 disagreement between two screeners files a `screen_conflict` by itself. Approving `fresh` or `continues` writes it
 into study.toml's `[study]` and signs the amendment. A request carries the exact change in `args` (a budget: `{"usd": 1.0}`), and a

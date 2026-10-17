@@ -229,9 +229,9 @@ SHORT = {
     "study_fidelity": "One rebuilt baseline (`arm` of result `ours`) against the paper's value (evidence `paper`).",
     "study_replication": "One claim of the paper (evidence `paper`) against result `ours`, gated by fidelity ids.",
     "agent_spawn": "Delegate a sub-question to a child agent; its budget comes out of yours.",
-    "agent_request": "Ask a person for an act you cannot do (kind: holdout, amend, approval, budget, screen, fresh, "
-                     "continues, compute, instrument, instrument_run, other), "
-                     "or a question (kind question, args {choices, multi, other}); returns an inbox id.",
+    "agent_request": "Ask the person for an act you can't (kind: holdout, amend, approval, budget, screen, fresh, "
+                     "continues, compute, instrument, instrument_run, experiment, other) or a question (kind "
+                     "question, args {choices, multi, other}); returns an inbox id.",
     "agent_plan": "Report your whole plan as a new version: nodes [{id, title, kind, needs, state, links, owner}]; again "
                   "whenever it changes. kind: review, data, run, branch, test, select, person, paper, critique, "
                   "check, lesson, other.",
@@ -364,7 +364,7 @@ AGENT_TOOLS = frozenset("""
     study_claim study_question study_hypothesis study_test study_assume study_break study_dead_end study_tree
     study_claims study_graph study_trace study_traceability study_frontier study_take
     study_reproduce study_bundle study_reproductions study_nodes study_impact study_branch
-    instrument_list instrument_show instrument_verify instrument_runs
+    instrument_list instrument_show instrument_verify instrument_runs experiment_list experiment_status
 """.split())
 
 

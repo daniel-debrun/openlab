@@ -19,7 +19,8 @@ FEED_KINDS = ("start", "tool", "say", "note", "plan", "plan_node", "request", "d
               "bypass_attempt", "tool_error", "run", "run_end", "tell", "told", "reply", "btw", "control", "end", "result", "spawn", "release")
 APPROVALS = {"holdout": "a holdout look", "amend": "an amendment", "approval": "an approval", "budget": "more budget",
              "screen": "a screening decision", "screen_conflict": "a screening conflict", "screen_maybe": "a maybe",
-             "fresh": "a fresh question", "continues": "a shared ledger", "compute": "another machine", "other": "a request"}
+             "fresh": "a fresh question", "continues": "a shared ledger", "compute": "another machine",
+             "experiment": "an experiment's start", "other": "a request"}
 
 
 def _store(ctx: ToolContext):
@@ -736,7 +737,28 @@ def show_snapshot(ctx: ToolContext) -> dict:
                 "spend_estimated": snap["usd_estimated"], "sessions": agents, "people": people(store.root),
                 "plans": plans(store, agents, every), "feed": feed(store), "inbox": pending, "answered": answered,
                 "queue": queue(), "settings": settings(store.root), "ledger": ledger(store.root, folders),
+                "experiments": experiments(store, folders), "instruments": instruments(store.root, folders),
                 "control_head": store.head()}
+
+
+def experiments(store, folders: list) -> list:
+    """Every experiment of the studies, as `experiment status` reads it (openlab.study.experiments.view): the
+    Experiments tab draws them as they are."""
+    from ..study import experiments as E
+    try:
+        return E.overview(store.root, folders, store=store)
+    except Exception as e:                                                  # noqa: BLE001 -- the page still draws
+        return [{"study": "", "name": "", "state": "error", "spec_error": str(e)}]
+
+
+def instruments(root: Path, folders: list) -> list:
+    """Every registered instrument version, with its runs, its last run, the studies pinning it and its usage's head
+    (the Experiments tab; the whole usage is `instrument_show` with usage_only)."""
+    from ..study import experiments as E
+    try:
+        return E.instruments_overview(root, folders)
+    except Exception:                                                       # noqa: BLE001
+        return []
 
 
 @tool("research")

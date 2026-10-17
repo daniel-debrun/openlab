@@ -2728,6 +2728,174 @@ class InstrumentRun(Body):
 SCHEMAS.update({c.KIND: c for c in (Instrument, InstrumentAuthority, InstrumentRun)})
 KINDS = tuple(SCHEMAS)
 
+
+# --- experiments (openlab.study.experiments): a study's scheduled, unattended runs of its pinned instruments --------
+_EXPERIMENT = re.compile(r"[a-z][a-z0-9_-]{0,47}")
+EXPERIMENT_ENDS = ("concluded", "killed", "failed")
+EXPERIMENT_VERDICTS = ("met", "not_met", "inconclusive")
+
+
+def _experiment_name(name: str) -> None:
+    if not _EXPERIMENT.fullmatch(name or ""):
+        raise StudyError(f"`{name}` is not an experiment name", "1-48 of a-z, 0-9, _ and -, starting with a letter")
+
+
+def _of_experiment(node: "Node", name: str, what: str) -> None:
+    if node.payload.get("name") != name:
+        raise StudyError(f"{node.id} is not of the experiment {name}", f"a {what} names its own experiment's nodes")
+
+
+@dataclass(frozen=True)
+class Experiment(Body):
+    """An experiment as set up: its spec file (`file`, under the study's experiments/), the sha256 of that file's
+    bytes and the validated spec, who asked for it and the inbox item that asks the person to start it. Written again
+    when the spec changes before the start (the latest counts); refused once the experiment has started, since an
+    experiment runs the spec it was started with and a changed one is a new experiment, under a new name."""
+    KIND: ClassVar[str] = "experiment"
+    ACTORS: ClassVar[tuple] = ("agent", "person")
+    name: str
+    sha: str
+    spec: dict
+    file: str
+    requested_by: str
+    inbox: int = 0
+    reason: str = ""
+
+    def check(self, rec, actor, links):
+        _experiment_name(self.name)
+        _sha(self.sha, "experiment sha")
+        if not self.sha or self.spec.get("name") != self.name:
+            raise StudyError("an experiment node carries its spec's sha and the spec of that name")
+        if rec.find("experiment_start", name=self.name):
+            raise StudyError(f"the experiment {self.name} has started",
+                             "it runs the spec it was started with; an edited spec is a new experiment",
+                             "save the spec under a new name (experiments/<new name>.toml) and request that one")
+
+
+@dataclass(frozen=True)
+class ExperimentStart(Body):
+    """The person's signed start of an experiment: it runs unattended, outside the sandbox, on the user's crontab
+    (`lines`, one per job), so starting it is a person's act. It starts exactly the spec its `experiment` node holds
+    (the latest one of that name), once."""
+    KIND: ClassVar[str] = "experiment_start"
+    ACTORS: ClassVar[tuple] = ("person",)
+    LINKS: ClassVar[tuple] = (Link("starts", ("experiment",), 1, 1),)
+    name: str
+    sha: str
+    spec: dict
+    lines: list
+    reason: str
+
+    def check(self, rec, actor, links):
+        _experiment_name(self.name)
+        if not self.reason.strip():
+            raise StudyError("starting an experiment needs a reason")
+        exp = links["starts"][0]
+        _of_experiment(exp, self.name, "start")
+        latest = rec.find("experiment", name=self.name)[-1]
+        if exp.id != latest.id or exp.payload["sha"] != self.sha or exp.payload["spec"] != self.spec:
+            raise StudyError(f"the start is not of the latest spec of {self.name}",
+                             f"latest: {latest.id} (sha {latest.payload['sha'][:12]})")
+        if rec.find("experiment_start", name=self.name):
+            raise StudyError(f"the experiment {self.name} has already started", "an experiment starts once")
+
+
+def _passes(rec, name: str) -> list:
+    return rec.find("experiment_pass", name=name)
+
+
+@dataclass(frozen=True)
+class ExperimentPass(Body):
+    """One pass of a running experiment, counted by openlab when its pass rule is met: its number, whether it
+    passed, the instrument runs it rests on (none when the run was refused before it started, with the error) and
+    whether any of them ran outside the schedule (a person's `job --now`)."""
+    KIND: ClassVar[str] = "experiment_pass"
+    ACTORS: ClassVar[tuple] = ("openlab",)
+    LINKS: ClassVar[tuple] = (Link("on", ("experiment_start",), 1, 1), Link("rests_on", ("instrument_run",)))
+    name: str
+    n: int
+    ok: bool
+    job: str
+    runs: list
+    error: str = ""
+    off_schedule: bool = False
+
+    def check(self, rec, actor, links):
+        _of_experiment(links["on"][0], self.name, "pass")
+        if rec.find("experiment_end", name=self.name):
+            raise StudyError(f"the experiment {self.name} has ended", "an ended experiment counts no more passes")
+        if self.n != len(_passes(rec, self.name)) + 1:
+            raise StudyError(f"pass {self.n} is not the next pass of {self.name}",
+                             f"it has {len(_passes(rec, self.name))}")
+        if sorted(self.runs) != sorted(n.id for n in links.get("rests_on", [])):
+            raise StudyError("a pass's runs are the runs it links (rests_on)")
+        if self.ok and not self.runs:
+            raise StudyError("a pass that passed rests on its runs")
+        if not self.ok and not self.runs and not self.error.strip():
+            raise StudyError("a failed pass with no run says why")
+
+
+@dataclass(frozen=True)
+class ExperimentEnd(Body):
+    """How an experiment ended: `concluded` (its stop rule was met), `failed` (its failure limit) or `killed` (by
+    `by`, with the reason), with the passes it counted. Its crontab lines are removed first."""
+    KIND: ClassVar[str] = "experiment_end"
+    LINKS: ClassVar[tuple] = (Link("ends", ("experiment_start",), 1, 1),)
+    name: str
+    state: str
+    reason: str
+    by: str
+    passes_ok: int
+    passes_failed: int
+
+    def check(self, rec, actor, links):
+        _of_experiment(links["ends"][0], self.name, "end")
+        if self.state not in EXPERIMENT_ENDS:
+            raise StudyError(f"an experiment ends {', '.join(EXPERIMENT_ENDS)}", f"got {self.state!r}")
+        _said(self, "reason")
+        if self.state != "killed" and actor != "openlab":
+            raise StudyError(f"an experiment is {self.state} by its own rules, which openlab applies",
+                             "an agent or a person ends one by killing it, with a reason")
+        if rec.find("experiment_end", name=self.name):
+            raise StudyError(f"the experiment {self.name} has already ended")
+        ps = _passes(rec, self.name)
+        if (self.passes_ok, self.passes_failed) != (sum(p.payload["ok"] for p in ps),
+                                                    sum(not p.payload["ok"] for p in ps)):
+            raise StudyError("an end counts the experiment's passes as the record holds them")
+
+
+@dataclass(frozen=True)
+class ExperimentReaction(Body):
+    """The conclusion drawn from an ended experiment, by the agent fired to react to it (or a person): a verdict
+    against the experiment's purpose, the conclusion in words, what it rests on (the experiment's passes, runs and
+    end) and the record nodes it wrote on the way (claims, dead ends, questions). One per experiment."""
+    KIND: ClassVar[str] = "experiment_reaction"
+    ACTORS: ClassVar[tuple] = ("agent", "person")
+    LINKS: ClassVar[tuple] = (Link("on", ("experiment_end",), 1, 1),
+                              Link("rests_on", ("experiment_pass", "instrument_run", "experiment_end",
+                                                "experiment_start"), 1),
+                              Link("records", ANY))
+    name: str
+    agent: str
+    verdict: str
+    conclusion: str
+
+    def check(self, rec, actor, links):
+        _of_experiment(links["on"][0], self.name, "reaction")
+        if self.verdict not in EXPERIMENT_VERDICTS:
+            raise StudyError(f"a verdict is one of {', '.join(EXPERIMENT_VERDICTS)}", f"got {self.verdict!r}",
+                             "met: the purpose's test passed; not_met: it failed; inconclusive: it cannot say")
+        _said(self, "conclusion")
+        for n in links["rests_on"]:
+            if n.kind != "instrument_run":
+                _of_experiment(n, self.name, "reaction")
+        if rec.find("experiment_reaction", name=self.name):
+            raise StudyError(f"the experiment {self.name} already has its reaction", "one conclusion per experiment")
+
+
+SCHEMAS.update({c.KIND: c for c in (Experiment, ExperimentStart, ExperimentPass, ExperimentEnd, ExperimentReaction)})
+KINDS = tuple(SCHEMAS)
+
 #: kinds only a person writes: each is signed by the person key, and `verify` flags one written by anyone else
 PERSON_ONLY = tuple(k for k, c in SCHEMAS.items() if tuple(c.ACTORS) == ("person",))
 

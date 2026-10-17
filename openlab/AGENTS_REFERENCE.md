@@ -254,6 +254,40 @@ Registering a version is the person's act: file `agent_request(kind="instrument"
 capabilities, secrets, outputs, state, ...})`. So is every run of a `live-order` instrument: file
 `agent_request(kind="instrument_run", args={instrument, args, study})`. Pinning a version is a protected amendment.
 
+## Experiments
+
+An experiment runs the study's pinned instruments on a schedule, unattended, for a set number of passes. Then it ends,
+and an agent is fired to conclude it. Use one when a question needs runs over days (a forward or paper trial), not a
+run now.
+- **Plan it on your Roadmap first.** It is one step of your plan (`agent_plan`), and the spec names that step
+  (`plan_step`). openlab moves the step to active at the start, and to done (failed, for a failed experiment) when
+  its conclusion is recorded. Link your request on the step (`inbox:<id>`) while you wait.
+- **Write the spec** with `experiment_new(study, name, toml | spec)`. It is `<study>/experiments/<name>.toml` with
+  these sections:
+  - `[experiment]`: name, purpose (what it tests and how it will be judged), plan_step;
+  - `[[jobs]]`: name, instrument (a pinned alias), args, cron, tz;
+  - `[pass]`: job, or `cycle`;
+  - `[stop]`: passes, until, max_failures;
+  - `[react]`: role, prompt, budget {usd, minutes, turns}.
+
+  Unknown keys, an unpinned alias, a `live-order` instrument or a missing stop rule are refused. Read
+  `instrument_show(usage_only=true)` for the args a job may pass.
+- **Ask the person** with `experiment_request(study, name, reason)`. Starting it is the person's act, because it runs
+  outside the sandbox: they approve the inbox item or run `openlab experiment start`. Do not run that yourself; the
+  hooks refuse it. A spec edited after the request must be requested again. A started experiment runs the spec it
+  was started with, so a changed one is a new name.
+- **Read it** with `experiment_list` and `experiment_status(study, name)`: the passes, each job's last runs with their
+  run ids (read one with `instrument_output(run)`), the failures, the end. You do not run its jobs; the crontab does.
+- **Kill it** with `experiment_kill(study, name, reason)` when it is wrong, for example when its runs keep failing for
+  a reason you can see. Its lines go at once, and the reaction agent is fired.
+- **React.** When you are the agent fired at its end, your prompt lists its runs:
+  1. plan on your Roadmap first;
+  2. read the runs, judge them against the purpose, and record what the record allows (a question, a hypothesis, a
+     dead end, a claim grounded in results);
+  3. close with `experiment_react(study, name, verdict, conclusion, rests_on, records)`. The verdict is `met`,
+     `not_met` or `inconclusive`. `rests_on` takes the pass and run ids, and `records` the ids you wrote. A reaction
+     is recorded once.
+
 ## Workspace tools
 
 `ws_list`, `ws_read`, `ws_write`, `ws_move`, `ws_delete` work on the workspace's files (the vault is never listed or

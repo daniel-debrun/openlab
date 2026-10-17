@@ -27,6 +27,9 @@ without one.
   shows exactly what the version holds, and registers it.
 * instrument_run: one run of a live-order instrument, args {instrument: NAME@VERSION, args: [...], study, note}:
   approving signs the authority for that run and runs it, as the person.
+* experiment: starting a study's experiment (openlab.study.experiments), args {study, name, spec_sha}: approving
+  shows what will run unattended and signs the start, which installs its crontab lines; refused when the spec file
+  changed since the request.
 * other: the decision only.
 A request that carries none of what its kind needs is refused when it is filed (`check_request`), so an approval
 can never be a no-op. A denial does nothing but record why; the agent reads it with agent_inbox_item.
@@ -123,6 +126,16 @@ def check_request(store: Store, agent: str, kind: str, args: Optional[dict], stu
             raise RequestError("an instrument_run request names the version and its exact args",
                                'args {"instrument": "NAME@VERSION", "args": ["place", "--symbol", "F"], '
                                '"study": "<folder>"}')
+    if kind == "experiment":
+        from ..study import experiments
+        from ..study.errors import StudyError
+        try:
+            return experiments.check_request(store.root, {**args, **({"study": study} if study and not args.get(
+                "study") else {})})
+        except StudyError as e:
+            raise RequestError(e.error + (f" ({e.meaning})" if e.meaning else ""),
+                               e.fix or 'args {"study": "<folder>", "name": "<experiment>"}; or the experiment_request '
+                               "tool") from None
     if kind == "compute":
         return compute_request(args)
     if kind == "question":
@@ -289,6 +302,11 @@ def describe(store: Store, item: dict, approve: bool = True) -> tuple[str, list]
             head = f"{head} -> run {args.get('instrument')} as the person"
             details = [f"args: {args.get('args') or []}", f"study: {args.get('study') or item['study'] or '(none)'}",
                        "a live-order instrument: your signature authorises this one run"]
+        elif kind == "experiment":
+            from ..study import experiments
+            what, details = experiments.describe(store.root, args.get("study") or item["study"], args.get("name", ""),
+                                                 args.get("spec_sha", ""))
+            head = f"{head} -> {what}"
         elif kind in ("fresh", "continues"):
             v = args.get("why") if kind == "fresh" else args.get("continues")
             details = [f'{item["study"]}/study.toml [study] {kind} = "{v}", recorded as a person\'s amendment'
@@ -405,6 +423,10 @@ def perform(store: Store, item: dict, reason: str, by: str, pick=None) -> dict:
                                   study=args.get("study") or item["study"] or "", note=args.get("note", ""),
                                   reason=why)
             out = {**out, "summary": f"exit {out['payload']['exit']}"}
+        elif kind == "experiment":
+            from ..study import experiments
+            out = experiments.start(store.root, args.get("study") or item["study"], args["name"], why,
+                                    spec_sha=args.get("spec_sha", ""))
         elif kind == "budget":
             a = store.get(item["agent"])
             b = dict(a["budget"])

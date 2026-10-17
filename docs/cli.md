@@ -44,6 +44,21 @@ trial, alpha budget, frontier, lattice, level).
 
 See [instruments.md](instruments.md).
 
+## Experiments
+
+| Command | What it does |
+|---|---|
+| `openlab experiment new STUDY NAME [--file F]` | write `STUDY/experiments/NAME.toml` from a template with the study's pins (or from `F`), and check it |
+| `openlab experiment list` | every experiment of the workspace's studies, with its state and passes |
+| `openlab experiment status STUDY NAME` | its state, purpose, Roadmap step, passes and time against the stop rule, each job's next time and last runs, its end and the reaction agent |
+| `openlab experiment request STUDY NAME --reason R` | ask the person to start it (inbox kind `experiment`) |
+| `openlab experiment start STUDY NAME --reason R [--sha S]` | start it (the person's): shows what will run unattended, asks for your passphrase, installs its crontab lines |
+| `openlab experiment kill STUDY NAME --reason R` | end it now: its lines go, the end names who killed it, the reaction agent is fired |
+| `openlab experiment job STUDY NAME JOB [--now]` | what a crontab line runs: the job, only at a minute it is due, once; `--now` runs it off schedule (the person's) |
+| `openlab experiment react STUDY NAME --verdict V --conclusion C --rests-on ID... [--records ID...]` | record the conclusion of an ended experiment; `--spawn` fires the reaction agent again when its spawn failed |
+
+See [experiments.md](experiments.md).
+
 ## Replication and research from a prompt
 
 | Command | What it does |

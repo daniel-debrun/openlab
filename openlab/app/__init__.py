@@ -11,6 +11,7 @@ from . import agent_tools as _agent_tools  # noqa: F401,E402 -- the agent contro
 from . import propose_tools as _propose_tools  # noqa: F401,E402 -- research from a prompt
 from . import show_tools as _show_tools  # noqa: F401,E402 -- what openlab show draws
 from . import instrument_tools as _instrument_tools  # noqa: F401,E402 -- registered programs outside the sandbox
+from . import experiment_tools as _experiment_tools  # noqa: F401,E402 -- scheduled instrument runs, then a conclusion
 from .registry import TOOLS, Tool, ToolContext, ToolError, dispatch
 
 __all__ = ["TOOLS", "Tool", "ToolContext", "ToolError", "dispatch"]

@@ -21,6 +21,24 @@
   - **Interfaces.** CLI `openlab instrument register|list|show|verify|run|runs`; tools `instrument_list`,
     `instrument_show`, `instrument_verify`, `instrument_run`, `instrument_runs`; a `doctor` row. See
     docs/instruments.md.
+- **Experiments.** A study's pinned instruments run on a schedule, unattended, for a set number of passes; then the
+  experiment ends and an agent is fired to conclude it.
+  - **The spec** is `<study>/experiments/<name>.toml`: purpose, the Roadmap step it implements, jobs (a pinned alias,
+    args, cron and time zone), the pass rule (a job's successful run, or a cycle of every job), the stop rule
+    (passes, until, max failures in a row) and the reaction agent (role, prompt, budget). It is checked strictly; a
+    `live-order` instrument is refused.
+  - **The record** holds `experiment` (the spec and who asked), `experiment_start` (a signed person node: it runs
+    outside the sandbox), `experiment_pass`, `experiment_end` (concluded, killed or failed) and `experiment_reaction`
+    (the verdict and conclusion). A started experiment runs the spec it was started with.
+  - **Running.** The start installs one tagged crontab line per job (only openlab's own lines are touched, under a
+    lock). A job runs only at a minute its schedule fires in its zone, once; each run is recorded as with `instrument
+    run --study`. At the end the lines go and the reaction agent is spawned. Agents and the person kill one with a
+    reason.
+  - **Interfaces.** CLI `openlab experiment new|list|status|request|start|kill|job|react`; tools `experiment_list`,
+    `experiment_status`, `experiment_new`, `experiment_request`, `experiment_kill`, `experiment_react`; inbox kind
+    `experiment`; the hooks keep `experiment start` and `job --now` the person's. `openlab show` has an
+    **Experiments** tab: each experiment's progress, jobs, runs (with their output), end and conclusion, its Roadmap
+    step, and the registered instruments. See docs/experiments.md.
 
 ## 2026-10-14 -- 1.3.0: openlab show, the workspace and the release
 

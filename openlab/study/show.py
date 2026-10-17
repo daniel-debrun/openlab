@@ -94,6 +94,16 @@ LINES = {
                              f"{p['metric']} {_num(p['ours'])} [{_num(p['lo'])}, {_num(p['hi'])}] vs the paper's "
                              f"{_paper(p)}, baseline {_num(p['reference'])}"
                              + (f"; ours {p['vs_reference']}" if p.get("vs_reference") else ""),
+    "experiment": lambda p: f"experiment {p['name']} set up (spec {p['sha'][:12]}), asked by {p['requested_by']}"
+                            + (f", inbox #{p['inbox']}" if p.get("inbox") else ""),
+    "experiment_start": lambda p: f"experiment {p['name']} started by the person: {len(p['lines'])} crontab lines; "
+                                  f"{p['reason']}",
+    "experiment_pass": lambda p: f"experiment {p['name']} pass {p['n']} ({p['job']}): "
+                                 + ("ok" if p["ok"] else f"FAILED{': ' + p['error'] if p.get('error') else ''}")
+                                 + (" (off schedule)" if p.get("off_schedule") else ""),
+    "experiment_end": lambda p: f"experiment {p['name']} {p['state']} ({p['passes_ok']} passes ok, "
+                                f"{p['passes_failed']} failed): {p['reason']}",
+    "experiment_reaction": lambda p: f"experiment {p['name']}: {p['verdict']} ({p['agent']}): {p['conclusion']}",
     "reproduction": lambda p: f"reproduction of {p['run']}: "
                               + ("matched" if p["matched"] else f"DIFFERS ({p['differs']})")
                               + (f", max |diff| {_num(p['max_abs_diff'])}" if p["max_abs_diff"] else ""),

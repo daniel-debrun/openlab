@@ -175,6 +175,15 @@ version `NAME@VERSION` registered by the person, which never changes. Run it onl
 with the hashes of its logs and outputs, and a study reads it as a dataset (`[data.x] instrument = "alias"`). Details
 in `openlab://reference`.
 
+## Experiments
+
+A question that needs runs over days (a forward or paper trial) is an experiment: the study's pinned instruments on a
+schedule, for a set number of passes, then an agent fired to conclude it. Make it a step of your Roadmap plan, write
+the spec (`experiment_new`, naming that `plan_step`), and ask the person to start it (`experiment_request`): it runs
+unattended, outside the sandbox. Read it with `experiment_status`; kill it with a reason (`experiment_kill`). Fired at
+its end, you plan, judge the runs against its purpose and close with `experiment_react`. Details in
+`openlab://reference`.
+
 ## The person's acts
 
 These belong to the person, who signs each with a passphrase-protected key:
@@ -185,7 +194,8 @@ These belong to the person, who signs each with a passphrase-protected key:
 - a screening decision over another agent's, and settling a conflict;
 - approving, rejecting or waiving a claim, a paper finding or a retracted source;
 - approving a proposal, deciding an inbox item, resuming a paused agent, more budget;
-- registering an instrument version, pinning one in a study, and every run of a `live-order` instrument.
+- registering an instrument version, pinning one in a study, and every run of a `live-order` instrument;
+- starting an experiment.
 
 When you need one, file `agent_request(kind, reason, study, args)` with the exact change in `args` (a budget:
 `{"usd": 1.0}`; an approval: `{"on": "<id>", "decision": "approve"}`), say why and what it costs (the look

@@ -76,6 +76,11 @@ a collector, a CLI), wrapping any command. Its version `NAME@VERSION` is the sha
 environment fingerprint; a person registers it, every run is verified and recorded with its hashes, and a study pins
 the versions it runs and reads. See [instruments.md](instruments.md).
 
+**Experiment, pass.** A study's pinned instruments run on a schedule, unattended, until a stop rule (a number of
+passes, a date, failed passes in a row) ends it; then an agent is fired to write its conclusion. A pass is one
+successful run of a named job, or a cycle of every job. An agent sets one up and asks; the person's signed start
+installs its crontab lines. See [experiments.md](experiments.md).
+
 ## Agents and supervision
 
 **Agent.** A Claude Code session or sub-agent, a Codex session, or an agent spawned by openlab. Each has an id, a

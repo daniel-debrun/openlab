@@ -54,6 +54,9 @@ PERSON_VERBS = [
     # appended, so the edit gate's slices below keep their verbs
     (re.compile(r"\binstrument\s+register\b|\binstruments\.(register|commit)\s*\("),
      "registering an instrument (openlab instrument register)"),
+    (re.compile(r"\bexperiment\s+start\b|\bexperiments\.start\s*\("),
+     "starting an experiment (openlab experiment start)"),
+    (re.compile(r"\bexperiment\s+job\b[^;|&\n]*--now\b"), "running an experiment's job off schedule (experiment job --now)"),
 ]
 #: an openlab command run under another HOME or config dir (a person key of the agent's own) or with OPENLAB_* changed
 OPENLAB_ENV = re.compile(r"(^|[\s;&|(`'\"])(export\s+|declare\s+-x\s+|env\s+(-\S+\s+)*)?(HOME|XDG_CONFIG_HOME|OPENLAB_\w+)="
@@ -198,9 +201,9 @@ _SHELLS = frozenset(("sh", "bash", "zsh", "dash", "ksh", "mksh", "ash", "fish"))
 #: what may run before the program and pass the rest on to it (skipped, with their options, to find the program)
 _RUNS_NEXT = frozenset(_WRAPPERS) | {"xargs", "parallel", "ionice", "chrt", "taskset", "doas", "unshare", "watch"}
 #: the openlab groups whose --help exits in argparse before any handler runs (tests: the person verbs' --help)
-_HELP_GROUPS = frozenset(("study", "inbox", "agent", "person", "instrument"))
+_HELP_GROUPS = frozenset(("study", "inbox", "agent", "person", "instrument", "experiment"))
 #: the groups whose free-text options below are values in every parser (none is a flag), and never run
-_TEXT_GROUPS = frozenset(("study", "instrument", "inbox", "agent"))
+_TEXT_GROUPS = frozenset(("study", "instrument", "inbox", "agent", "experiment"))
 _TEXT_OPTS = frozenset(("--reason", "--note", "--message", "--other", "--question", "--statement"))
 _BARE = re.compile(r"^[A-Za-z0-9_.-]*$")
 #: options of openlab parsers whose value is not a verb (read past them to find the group and verb)
