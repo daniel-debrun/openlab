@@ -31,6 +31,7 @@ it says what was refused (`error`), what that means (`meaning`), and what to do 
 | Like is compared with like | results compare only when their protocol coordinates match | refused at `compare` |
 | History is not silently repeated | a hypothesis sharing a tag with a dead end must link it and say what is different | refused at `hypothesis` |
 | The paper says what the record says | bindings, the number and wording lints, citation quotes, the equation check, traceability | `study paper` lists every finding; only a person waives one |
+| An instrument is what was registered | a version is the sha of its snapshot, entry, settings and environment fingerprint; registering it is a signed person node; each run re-checks every hash and is recorded with its logs' and outputs' hashes; a study runs and reads only the versions it pins (a protected field); a live-order run needs a signed authority for its exact args | `NAME@VERSION is not the version that was registered`, `STUDY does not pin NAME@VERSION`, `each run is a person's act` |
 | The record is append-only | SQLite with a hash chain over each node, its links, actor and session; person nodes signed | `openlab study verify` names the first edited node or bad signature |
 
 `python -m bench.harness --suite traps` plants traps of each kind and checks that the structure refuses or flags them.

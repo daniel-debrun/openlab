@@ -29,7 +29,8 @@ from .schema import FIELD_TYPES, FREE_TYPES, INDEXES, UNITS
 
 PERSON_FIELDS = ("split", "budget", "sandbox", "audit", "selection", "forecast.gate", "evaluate.metrics[0]", "data.*.known_at",
                  "review.coverage_floor", "review.comparable_on", "inference", "study.fresh",
-                 "metrics")                                  # amend needs a person; metrics: the study's own
+                 "metrics", "instruments", "data.*.instrument")  # amend needs a person; metrics: the study's own;
+#                                                              instruments: the exact versions the study runs and reads
 REVIEW_FIELDS = ("review.coverage_floor", "review.comparable_on")  # guarded even while a replication is planned
 
 MODES = {"temporal": ("walk_forward", "time"), "static": ("kfold", "stratified", "group", "insample"), "review": ()}
@@ -98,7 +99,9 @@ def _parses(parse, what: str):
 KEYS = {
     "study": {"name": _STR, "question": _STR, "mode": _one_of(*MODES), "continues": _STR, "fresh": _STR},
     "data.*": {"provider": _STR, "endpoint": _STR, "args": _DICT, "snapshot": _STR, "dataset": _STR, "file": _STR,
-               "recipe": _STR, "time": _STR, "key": _STRS, "known_at": _STR, "vintages": _PAIR, "licence": _STR},
+               "recipe": _STR, "time": _STR, "key": _STRS, "known_at": _STR, "vintages": _PAIR, "licence": _STR,
+               # a dataset read from a pinned instrument's recorded output (openlab.study.instruments)
+               "instrument": _STR, "output": _STR},
     "target": {"horizon": _STR, "column": _STR},
     "split": {"scheme": _one_of(*(s for v in MODES.values() for s in v)), "decisions": _STR, "refit": _STR,
               "window": _STR, "research": _PAIR, "holdout": _PAIR, "embargo": _STR, "fraction": _FRAC,
@@ -146,7 +149,7 @@ KEYS = {
 }
 FREE = ()                                                    # later phases: any keys
 SECTIONS = ("study", "data", "target", "split", "evaluate", "budget", "sandbox", "schedule", "forecast", "review",
-            "claims", "audit", "inference", "monitor", "metrics", "mirror", "search", "selection")
+            "claims", "audit", "inference", "monitor", "metrics", "mirror", "search", "selection", "instruments")
 _EXPERIMENT = ("split.scheme", "evaluate.metrics", "budget.trials")
 #: per mode, what study.toml must have beyond study.name, question and mode, and (ONLY) the sections it may have:
 #: a review runs no experiment, so it has [study] and [review] and none of the experiment's sections
@@ -157,7 +160,9 @@ DEFAULTS = {"budget": {"holdout_looks": 1}, "forecast": {"model": "latest", "gat
 REVIEW_REQUIRED = ("question", "sources", "queries", "include", "exclude", "coverage_floor")
 REVIEW_DEFAULTS = {"scope": "", "since": "", "citation_hops": 1, "n": 25, "extract": {}, "coordinates": [],
                    "comparable_on": []}
-SOURCES = ("provider", "snapshot", "file")
+SOURCES = ("provider", "snapshot", "file", "instrument")
+#: an instrument pin: NAME@VERSION, the version being the first 12 hex of the registration's sha256
+INSTRUMENT_PIN = re.compile(r"[a-z][a-z0-9_-]{0,47}@[0-9a-f]{12}")
 
 
 @dataclass(frozen=True)
@@ -175,6 +180,9 @@ class DatasetSpec:
     known_at: str = ""
     vintages: tuple = ()
     licence: str = ""
+    instrument: str = ""                        # the alias under [instruments]
+    output: str = ""                            # the file of the instrument's run
+    pin: str = ""                               # NAME@VERSION the alias pins (filled from [instruments])
 
 
 @dataclass(frozen=True)
@@ -197,6 +205,7 @@ class Spec:
     forecast: dict
     inference: dict
     monitor: dict
+    instruments: dict = field(default_factory=dict)
 
     def sha(self) -> str:
         return hashlib.sha256(canonical(self.raw).encode("utf-8")).hexdigest()
@@ -234,10 +243,26 @@ def _validate(raw: dict) -> None:
                     raise _bad(f"data.{name}", "must be a table named like an identifier (letters, digits, _)")
                 _keys(ds, KEYS["data.*"], f"data.{name}")
                 if sum(bool(ds.get(s)) for s in SOURCES) != 1:
-                    raise _bad(f"data.{name}", "needs exactly one of provider, snapshot or file")
+                    raise _bad(f"data.{name}", "needs exactly one of provider, snapshot, file or instrument")
+                if ds.get("instrument"):
+                    if not ds.get("output"):
+                        raise _bad(f"data.{name}.output", "is required for an instrument",
+                                   'name the file of its run to read: output = "positions.json"')
+                    if ds["instrument"] not in (raw.get("instruments") or {}):
+                        raise _bad(f"data.{name}.instrument", f"names `{ds['instrument']}`, which [instruments] "
+                                   "does not pin", f'pin it: [instruments] {ds["instrument"]} = "NAME@VERSION"')
+                elif ds.get("output"):
+                    raise _bad(f"data.{name}.output", "is for a dataset read from an instrument")
                 if ds.get("file") and not ds.get("recipe"):
                     raise _bad(f"data.{name}.recipe", "is required for a file",
                                "add the script that makes the file: recipe = \"recipes/<script>.py\"")
+        elif sec == "instruments":
+            for alias, pin in body.items():
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", alias):
+                    raise _bad(f"instruments.{alias}", "must be named like an identifier (letters, digits, _)")
+                if not isinstance(pin, str) or not INSTRUMENT_PIN.fullmatch(pin):
+                    raise _bad(f"instruments.{alias}", "must be a registered version, NAME@VERSION",
+                               "`openlab instrument list` shows them, e.g. ibkr_paper@0123456789ab")
         elif sec == "metrics":
             for name, m in body.items():
                 if not name.isidentifier() or not isinstance(m, dict):
@@ -303,7 +328,9 @@ def build(raw: dict, folder: Path) -> Spec:
     sec = {s: {**(DEFAULTS.get(s, {}) if s in allowed else {}), **raw.get(s, {})} for s in KEYS
            if s not in ("data.*", "metrics.*", "inference")}
     declare(raw.get("metrics", {}))
-    data = {name: DatasetSpec(name=name, **{k: tuple(v) if k in ("key", "vintages") else v for k, v in ds.items()})
+    pins = dict(raw.get("instruments") or {})
+    data = {name: DatasetSpec(name=name, **{k: tuple(v) if k in ("key", "vintages") else v for k, v in ds.items()},
+                              **({"pin": pins.get(ds["instrument"], "")} if ds.get("instrument") else {}))
             for name, ds in raw.get("data", {}).items()}
     return Spec(raw=raw, folder=Path(folder), name=raw["study"]["name"], question=raw["study"]["question"],
                 mode=raw["study"]["mode"], data=data, target=sec["target"], split=sec["split"],
@@ -312,7 +339,7 @@ def build(raw: dict, folder: Path) -> Spec:
                 review={**REVIEW_DEFAULTS, **raw["review"]} if "review" in raw else {},
                 audit=sec["audit"], forecast=sec["forecast"],
                 inference=_inference(raw.get("inference", {})) if "inference" in allowed else {},
-                monitor=sec["monitor"])
+                monitor=sec["monitor"], instruments=pins)
 
 
 def load(folder: Path) -> Spec:

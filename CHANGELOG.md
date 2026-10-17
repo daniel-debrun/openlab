@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased (Nightly-latest)
+
+- **Instruments.** Registered, immutable programs that measure or act outside the sandbox: a broker's paper account,
+  a collector, a scraper, a CLI. An instrument wraps any command (an argv entry: `python -m pkg`, `node x.js`, a shell
+  script, a binary, `npx`, `uv run`).
+  - **Versions.** A version `NAME@VERSION` is the sha256 of its manifest: the snapshot of its code (copied into the
+    content store and a read-only snapshot that runs execute), its settings and a pluggable environment fingerprint
+    (python distributions file by file, node and node_modules, binaries by sha256 and `--version`, lockfiles, the
+    stdout of any command). An instrument with no source folder is verified, never copied.
+  - **Registration** is the person's, signed, on the workspace's instrument record (`.openlab/instruments/`). Agents
+    file `agent_request` kind `instrument`, and the hooks refuse the verb to them.
+  - **Runs.** Every run re-checks the version and refuses on drift, naming the part that changed. It is recorded as an
+    `instrument_run` with the hashes of its redacted logs and declared outputs. Secrets are passed through by name and
+    masked in the logs.
+  - **Studies** pin versions (`[instruments]`, a protected field) and read their outputs as datasets
+    (`[data.x] instrument = "alias"`, `output = "file"`).
+  - **Live orders.** A `live-order` instrument runs only as the person, under a signed authority per run (inbox kind
+    `instrument_run`).
+  - **Interfaces.** CLI `openlab instrument register|list|show|verify|run|runs`; tools `instrument_list`,
+    `instrument_show`, `instrument_verify`, `instrument_run`, `instrument_runs`; a `doctor` row. See
+    docs/instruments.md.
+
 ## 2026-10-14 -- 1.3.0: openlab show, the workspace and the release
 
 `openlab show` becomes the place a person runs research from: every agent and person, their plans and the record on

@@ -8,7 +8,7 @@ verb below is a `openlab_study_*` tool, `openlab tool study_VERB key=value`, and
 | Section | Keys |
 |---|---|
 | `[study]` | `name`, `question`, `mode` (`temporal`, `static` or `review`) |
-| `[data.NAME]` | exactly one of `provider` (+ `endpoint`, `args`), `snapshot`, `file` (+ `recipe`); then `time`, `key`, `known_at`, `vintages = [start_col, end_col]`, `licence` |
+| `[data.NAME]` | exactly one of `provider` (+ `endpoint`, `args`), `snapshot`, `file` (+ `recipe`), `instrument` (+ `output`: a file a run of the pinned instrument wrote); then `time`, `key`, `known_at`, `vintages = [start_col, end_col]`, `licence` |
 | `[target]` | `horizon` (temporal, e.g. `"1d"`, `"30h"`, `"1M"`) or `column` (static) |
 | `[split]` | temporal: `scheme = "walk_forward"`, `decisions`, `refit`, `window`, `research = [start, end]`, `holdout = [start, end]`, `embargo`, `burn_in`, `train_from`. Static: `scheme` (`kfold`, `stratified`, `group`, `insample`: the model is fit on every research row and scores those same rows, as some papers do; the run's audit says `in-sample` and every fidelity and replication on it is marked so), `k`, `fraction` (the holdout; 1/k), `by`, `seed`, `reseed` (true: each run's `--seed` deals the research folds anew, for a paper's mean over random splits; the holdout keeps `seed`) |
 | `[evaluate]` | `metrics` (the first is primary), `prediction` (`point`, `prob`, `gaussian`, `quantiles`, `ensemble`, `interval`, `frame`: columns of the model's own, read only by the study's own metric with `reads = ["frame"]`), `level` (the central interval coverage and interval_width read, e.g. 0.9), `by = "key"` (each entity's own scores besides the pooled ones: a station, a dataset; `openlab study show FOLDER RESULT` prints them), `baselines`, `interval`, `alpha`, `block`, `policy_metrics`, `policy_baselines` |
@@ -16,6 +16,7 @@ verb below is a `openlab_study_*` tool, `openlab tool study_VERB key=value`, and
 | `[metrics.NAME]` | the study's own metric: `better` (`lower` or `higher`), `reads` (default `["point"]`), `unit`, `description`; its function `NAME(y, pred) -> float` is in `metrics.py`. openlab writes `code_sha` (metrics.py's sha256) into the spec |
 | `[sandbox]`, `[audit]` | `network` (default false), `timeout`, `threads` (default 1; recorded in the run's env); `n`, the audited steps (default 20) |
 | `[inference]` | the error budget: `alpha`, `wealth`, `payout` |
+| `[instruments]` | `alias = "NAME@VERSION"`: the registered instrument versions the study runs and reads (see Instruments below) |
 | `[forecast]`, `[schedule]`, `[monitor]` | `model`, `gate` (SQL predicates over the predictions, table `t`), `expires`; `cron`, `refresh`; `cron`, `notify` |
 | `[review]` | `question`, `scope`, `sources` (`openalex`, `arxiv`, `crossref`), `queries`, `since`, `include`, `exclude` (`[{id, text}]`), `citation_hops`, `n`, `coverage_floor`, `extract` (field types), `coordinates`, `comparable_on` |
 
@@ -28,8 +29,8 @@ openlab's own is refused). Baselines: `persistence`, `climatology`, `majority`, 
 model.py.
 
 Protected fields, which only a person amends: `split`, `budget`, `sandbox`, `audit`, `forecast.gate`, the primary
-metric, `data.*.known_at`, `review.coverage_floor`, `review.comparable_on`, `inference` and `metrics` (so an edit of
-metrics.py after the seal is a person's amendment).
+metric, `data.*.known_at`, `review.coverage_floor`, `review.comparable_on`, `inference`, `metrics` (so an edit of
+metrics.py after the seal is a person's amendment), `instruments` and `data.*.instrument`.
 
 ## model.py
 
@@ -226,6 +227,23 @@ answer is advice: it is not signed, and a question cannot be approved or denied.
 When a study's lead ends done, the running `openlab show` compiles `<study>/release/`: `README.md`, `paper.pdf` (only
 when every binding resolves and every lint finding is fixed or waived), `code/`, the signed bundle and
 `MANIFEST.json`. `[show] compile_on_done = false` in `openlab.toml` turns it off.
+
+## Instruments
+
+An instrument is a registered, immutable program that acts outside the sandbox (a broker's paper account, a collector,
+a CLI). Its version `NAME@VERSION` is the sha of its snapshot, entry, settings and environment fingerprint.
+- `instrument_list`, `instrument_show(ref, verify)`, `instrument_verify(ref)`: what is registered, and whether a version
+  still hashes to its registration.
+- `instrument_run(ref, args, study, note)` runs a version after verifying it, and records the run with the hashes of
+  its logs and outputs. With `study`, the study must pin the version (`ref` may be its alias), and the run is also on
+  the study's record. Drift is refused, naming what changed.
+- `instrument_runs(ref, study, n)`: the recorded runs.
+- A dataset `[data.x] instrument = "alias"`, `output = "file"` materialises from the latest successful run of the
+  pinned version that wrote the file.
+
+Registering a version is the person's act: file `agent_request(kind="instrument", args={name, entry, source,
+capabilities, secrets, outputs, state, ...})`. So is every run of a `live-order` instrument: file
+`agent_request(kind="instrument_run", args={instrument, args, study})`. Pinning a version is a protected amendment.
 
 ## Workspace tools
 

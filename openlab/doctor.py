@@ -95,6 +95,9 @@ def check(here: Optional[Path] = None) -> Report:
 
     for name, ok, where, note in _workspace(here or Path.cwd()):
         r.add(name, ok, where, note=note)
+    inst = _instruments(here or Path.cwd())
+    if inst is not None:
+        r.add("instruments", *inst)
     pin = _pin(here or Path.cwd())
     if pin is not None:
         r.add("person pin", *pin)
@@ -302,6 +305,30 @@ def _pin(here: Path) -> Optional[tuple]:
             + ("" if owned or not k else f"; your key here is {k['fingerprint']}: MISMATCH"), "",
             "compare it with the fingerprint you keep where no agent can write"
             + "".join(f"; warning: control store event {x['seq']}: {x['why']}" for x in s["invalid"]))
+
+
+def _instruments(here: Path) -> Optional[tuple]:
+    """(ok, detail, fix, note) of the workspace's instruments: how many versions, and whether their record's chain and
+    every snapshot's files still hash to their registration (environments are checked by `openlab instrument verify`,
+    which runs each probe); None when none is registered."""
+    try:
+        from .study import instruments as ins
+        if not ins.Registry.exists(here):
+            return None
+        reg = ins.Registry(here)
+        nodes = ins.versions(reg)
+        chain = reg.verify()
+        bad = [ins.ident(n.payload) for n in nodes if not ins.verify(reg, n, environment=False)["ok"]]
+    except Exception as exc:                     # noqa: BLE001 -- a report, never a failure
+        return None, f"unreadable ({type(exc).__name__}: {exc})", "", ""
+    names = {n.payload["name"] for n in nodes}
+    if not chain["ok"]:
+        return False, f"the instrument record fails verification at seq {chain['broken_at']}", "", ""
+    if bad:
+        return (False, f"{len(bad)} of {len(nodes)} versions no longer match their registration: {', '.join(bad)}",
+                f"openlab instrument verify {bad[0]}", "")
+    return (True, f"{len(nodes)} versions of {len(names)} instruments; record and snapshots intact", "",
+            "`openlab instrument verify --all` also re-checks every environment")
 
 
 def _paths(here: Path) -> list:

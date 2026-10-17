@@ -99,7 +99,9 @@ $ openlab agent log cc-7c0ffee1.agent1
 An agent that needs a person files `agent_request(kind, reason, study, args)` and carries on with other work. The
 kinds are `holdout`, `amend`, `approval`, `budget`, `screen`, `fresh` (`{"why": ...}`: a new question on data
 another study uses), `continues` (`{"continues": "../demo"}`: share that study's trial ledger), `compute`
-(`{"gpus": 2, "hours": 6}`: another machine, see below), `question` (`{"choices": [...], "multi": false,
+(`{"gpus": 2, "hours": 6}`: another machine, see below), `instrument` (the exact registration of an instrument
+version: `{"name", "entry", "source", "capabilities", ...}`; see [instruments.md](instruments.md)), `instrument_run`
+(one run of a live-order instrument: `{"instrument": "NAME@VERSION", "args": [...]}`), `question` (`{"choices": [...], "multi": false,
 "other": true}`: answered in `openlab show`, unsigned; see [show.md](show.md#questions)) and `other`; a
 disagreement between two screeners files a `screen_conflict` by itself. Approving `fresh` or `continues` writes it
 into study.toml's `[study]` and signs the amendment. A request carries the exact change in `args` (a budget: `{"usd": 1.0}`), and a

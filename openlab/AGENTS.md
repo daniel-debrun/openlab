@@ -167,6 +167,14 @@ The verdict and level are computed; typing them is refused. A claim on a result 
 or `+reproduced`. A gap in the literature is "not found in the searched sources", never "novel". A claim cannot rest
 on a run whose audit is not clean.
 
+## Instruments
+
+A program that must act outside the sandbox (a broker's paper account, a collector, a scraper) is an instrument: a
+version `NAME@VERSION` registered by the person, which never changes. Run it only through `instrument_run`
+(`openlab_tool`), never by calling the program yourself: the run is verified against its registration and recorded
+with the hashes of its logs and outputs, and a study reads it as a dataset (`[data.x] instrument = "alias"`). Details
+in `openlab://reference`.
+
 ## The person's acts
 
 These belong to the person, who signs each with a passphrase-protected key:
@@ -176,7 +184,8 @@ These belong to the person, who signs each with a passphrase-protected key:
   args {"study.toml": {section: {key: value}}}, which the approval writes and records;
 - a screening decision over another agent's, and settling a conflict;
 - approving, rejecting or waiving a claim, a paper finding or a retracted source;
-- approving a proposal, deciding an inbox item, resuming a paused agent, more budget.
+- approving a proposal, deciding an inbox item, resuming a paused agent, more budget;
+- registering an instrument version, pinning one in a study, and every run of a `live-order` instrument.
 
 When you need one, file `agent_request(kind, reason, study, args)` with the exact change in `args` (a budget:
 `{"usd": 1.0}`; an approval: `{"on": "<id>", "decision": "approve"}`), say why and what it costs (the look

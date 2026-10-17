@@ -32,6 +32,17 @@ trial, alpha budget, frontier, lattice, level).
 
 `openlab lessons find QUERY` ranks the lessons of every study in the workspace.
 
+## Instruments
+
+| Command | What it does |
+|---|---|
+| `openlab instrument register NAME --entry CMD [--source DIR] ... --reason R` | register a version (the person's: it shows what the version holds and asks for your passphrase) |
+| `openlab instrument list \| show REF [--verify] \| verify REF\|--all` | the registered versions, one manifest, every hash checked again |
+| `openlab instrument run REF [--study S] [--reason R] -- ARGS` | run a version (verified first) and record it; a `live-order` instrument is the person's to run, signed per run |
+| `openlab instrument runs [REF] [--study S]` | the recorded runs |
+
+See [instruments.md](instruments.md).
+
 ## Replication and research from a prompt
 
 | Command | What it does |

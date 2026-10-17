@@ -248,6 +248,7 @@ meaning and a fix; it is never stored and flagged later.
 | Evidence is where it says | an extracted quote must be on its page and contain its numbers |
 | The paper says what the record says | the build refuses an unbound number, "significant" without a rejecting test, a stale binding, a quote not in its source |
 | The record is not quietly edited | append-only SQLite, hash-chained over every node; `openlab study verify` recomputes the chain and every signature |
+| An instrument is what was registered | a version is the sha of its snapshot, entry and environment fingerprint, registered by the person's signature; every run re-checks it and is recorded with its hashes ([docs/instruments.md](docs/instruments.md)) |
 
 The record is tamper-evident, not tamper-proof: whoever controls the machine can rebuild a whole record under a new
 key. [docs/guards.md](docs/guards.md) has every guarantee, the trust levels and the threat model.
@@ -265,6 +266,7 @@ key. [docs/guards.md](docs/guards.md) has every guarantee, the trust levels and 
 ## More
 
 - [Command reference](docs/cli.md) and [what else is in the box](docs/features.md)
+- [Instruments](docs/instruments.md): registered, immutable programs that act outside the sandbox (a broker's paper account, a collector, a CLI)
 - [Glossary](docs/GLOSSARY.md), and the agent's contract: [openlab/AGENTS.md](openlab/AGENTS.md)
 - [Benchmark mode: MLE-bench](docs/benchmark.md) and [on a server or GPU box](docs/box.md)
 

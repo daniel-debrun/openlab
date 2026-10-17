@@ -2,7 +2,9 @@
 `dataset` node with its sha256 and card, and re-checked against that sha on every load.
 
 A dataset comes from one source kind, each a registered `Source`: a provider endpoint (`openlab.sources`), a
-snapshot on disk, or a file made by a recipe the study holds. The recipe runs (with this Python, in the study
+snapshot on disk, a file made by a recipe the study holds, or the recorded output of a run of an instrument the study
+pins (openlab.study.instruments: the latest successful run of that version that wrote the file, checked against its
+sha256, whose run id goes into the dataset's source). The recipe runs (with this Python, in the study
 folder) when the file is missing or on refresh, and its source goes into the content store under its sha256. A
 file without a recipe is refused: nothing would say how it was made. A recipe edited after its file was made is
 not re-run without refresh; `stale` says so.
@@ -65,6 +67,14 @@ def _file(folder: Path, ds: DatasetSpec, refresh: bool) -> pl.DataFrame:
     return read(path)
 
 
+def _instrument(folder: Path, ds: DatasetSpec, refresh: bool):
+    """The pinned instrument's recorded output (refresh never runs an instrument: an agent or a person runs it)."""
+    from .instruments import dataset_output
+    if not ds.pin:
+        raise StudyError(f"data.{ds.name}: [instruments] pins no `{ds.instrument}`")
+    return dataset_output(folder, ds.pin, ds.output)
+
+
 def _snapshot_limits(ds: DatasetSpec) -> dict:
     """The limits of the provider the snapshot pulled from, as its manifest recorded them."""
     return snapshot._manifest(ds.snapshot)["datasets"].get(ds.dataset or ds.name, {}).get("limits", {})
@@ -76,6 +86,7 @@ SOURCES = {
     "snapshot": Source(lambda folder, ds, refresh: snapshot.read(ds.snapshot, ds.dataset or ds.name),
                        ("snapshot", "dataset"), _snapshot_limits),
     "file": Source(_file, ("file", "recipe")),
+    "instrument": Source(_instrument, ("instrument", "pin", "output")),
 }
 
 
@@ -138,7 +149,9 @@ def materialise(study: "Study", name: str, refresh: bool = False) -> Node:
             and out.is_file() and hashlib.sha256(out.read_bytes()).hexdigest() == last.payload["sha256"]):
         return last        # a provider's pull is frozen: re-fetched only on refresh (or a changed definition)
     try:
-        df = _frame(src.load(study.folder, ds, refresh))
+        got = src.load(study.folder, ds, refresh)
+        source = {**source, **(getattr(got, "provenance", None) or {})}    # an instrument's run and output sha
+        df = _frame(got)
     except StudyError:
         raise
     except Exception as e:                          # noqa: BLE001 -- any source failure becomes one clear error

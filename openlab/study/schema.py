@@ -2589,6 +2589,137 @@ class Finding(Body):
 SCHEMAS.update({c.KIND: c for c in (ModuleCheck, Critique, Finding)})
 KINDS = tuple(SCHEMAS)
 
+
+# --- instruments (openlab.study.instruments): registered programs that measure or act outside the sandbox -----------
+_INSTRUMENT = re.compile(r"[a-z][a-z0-9_-]{0,47}@[0-9a-f]{12}")
+
+
+@dataclass(frozen=True)
+class Instrument(Body):
+    """A registered version of an instrument, on the workspace's instrument record: its manifest (entry argv,
+    runtime, capabilities, secrets by name, fixed env, outputs, state, timeout, redaction, snapshot files by sha256,
+    links, config sha, environment parts) and `sha`, the manifest's sha256, whose first 12 hex are the version. A
+    person's act, signed; a version is written once and never changes."""
+    KIND: ClassVar[str] = "instrument"
+    ACTORS: ClassVar[tuple] = ("person",)
+    name: str
+    version: str
+    sha: str
+    entry: list
+    runtime: str
+    capabilities: list
+    secrets: list
+    env: dict
+    outputs: list
+    state: bool
+    timeout: float
+    redact: list
+    files: dict
+    links: dict
+    config: str
+    config_suffix: str
+    environment: dict
+    source: str
+    reason: str
+
+    def check(self, rec, actor, links):
+        from .instruments import CAPABILITIES, NAME, manifest_sha
+        if not NAME.fullmatch(self.name):
+            raise StudyError(f"`{self.name}` is not an instrument name")
+        if not self.reason.strip():
+            raise StudyError("a registration needs a reason")
+        if not self.entry or not all(isinstance(x, str) and x for x in self.entry):
+            raise StudyError("an instrument's entry is a non-empty argv of strings")
+        bad = [c for c in self.capabilities if c not in CAPABILITIES]
+        if bad:
+            raise StudyError(f"unknown capability {', '.join(bad)}", f"capabilities: {', '.join(CAPABILITIES)}")
+        _sha(self.sha, "instrument sha")
+        _sha(self.config, "instrument config sha")
+        for rel, f in self.files.items():
+            _sha(f.get("sha256", ""), f"instrument file {rel}")
+        if manifest_sha(dataclasses.asdict(self)) != self.sha or self.version != self.sha[:12]:
+            raise StudyError("the instrument's version is not its manifest's sha256",
+                             "a version is computed from what it runs, never typed")
+        if rec.find("instrument", name=self.name, version=self.version):
+            raise StudyError(f"{self.name}@{self.version} is already registered", "a version is written once")
+
+
+@dataclass(frozen=True)
+class InstrumentAuthority(Body):
+    """A person's signed decision to run a person-only (live-order) instrument once, with these exact args, written
+    before it runs; the one run it allows links it `under`."""
+    KIND: ClassVar[str] = "instrument_authority"
+    ACTORS: ClassVar[tuple] = ("person",)
+    instrument: str
+    args: list
+    study: str
+    reason: str
+
+    def check(self, rec, actor, links):
+        if not _INSTRUMENT.fullmatch(self.instrument):
+            raise StudyError(f"`{self.instrument}` is not NAME@VERSION")
+        if not self.reason.strip():
+            raise StudyError("an authority to run a live-order instrument needs a reason")
+
+
+@dataclass(frozen=True)
+class InstrumentRun(Body):
+    """One run of a registered instrument version: args, start and end (UTC), exit code, the sha256 of its redacted
+    stdout and stderr and of each declared output (all in the content store), and the environment sha it was verified
+    against. On a study's record `registry_run` names the same run on the workspace's instrument record. A run of a
+    live-order instrument is the person's, under the authority signed for it."""
+    KIND: ClassVar[str] = "instrument_run"
+    LINKS: ClassVar[tuple] = (Link("under", ("instrument_authority",), 0, 1),)
+    instrument: str
+    registration: str
+    args: list
+    note: str
+    study: str
+    started: str
+    ended: str
+    exit: int
+    timed_out: bool
+    stdout: str
+    stderr: str
+    outputs: dict
+    environment: str
+    capabilities: list
+    run_dir: str
+    registry_run: str = ""
+
+    def check(self, rec, actor, links):
+        from .instruments import PERSON_CAPABILITIES
+        if not _INSTRUMENT.fullmatch(self.instrument):
+            raise StudyError(f"`{self.instrument}` is not NAME@VERSION")
+        for what, v in (("stdout", self.stdout), ("stderr", self.stderr), ("environment", self.environment)):
+            _sha(v, f"instrument_run {what}")
+        for path, o in self.outputs.items():
+            _sha(o.get("sha256", ""), f"instrument_run output {path}")
+        if set(self.capabilities) & set(PERSON_CAPABILITIES):
+            if actor != "person":
+                raise StudyError(f"{self.instrument} can place live orders: its runs are the person's",
+                                 f"written by {actor}", "the person runs it, signed for that run")
+            if not self.registry_run:
+                auth = links.get("under") or []
+                if not auth:
+                    raise StudyError("a live-order run needs the authority the person signed for it")
+                a = auth[0]
+                if a.payload["instrument"] != self.instrument or a.payload["args"] != self.args:
+                    raise StudyError("the run is not the one its authority allows",
+                                     f"the authority is for {a.payload['instrument']} {a.payload['args']}")
+                if rec.links(a.id, rel="under", incoming=True):
+                    raise StudyError(f"{a.id} already allowed a run", "an authority allows one run")
+        if rec.find("plan"):
+            from .spec import sealed
+            pins = (sealed(rec).raw.get("instruments") or {}).values()
+            if self.instrument not in pins:
+                raise StudyError(f"this study does not pin {self.instrument}",
+                                 "a study records runs of the versions its [instruments] pins")
+
+
+SCHEMAS.update({c.KIND: c for c in (Instrument, InstrumentAuthority, InstrumentRun)})
+KINDS = tuple(SCHEMAS)
+
 #: kinds only a person writes: each is signed by the person key, and `verify` flags one written by anyone else
 PERSON_ONLY = tuple(k for k, c in SCHEMAS.items() if tuple(c.ACTORS) == ("person",))
 

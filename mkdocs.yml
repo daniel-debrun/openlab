@@ -16,6 +16,7 @@ nav:
   - A literature review: literature-review.md
   - "The plan: study.toml": plan.md
   - Guarantees and refusals: guards.md
+  - Instruments: instruments.md
   - Claims, tests and the paper: claims.md
   - ML models in a study: ml.md
   - Search, selection and lessons: search.md

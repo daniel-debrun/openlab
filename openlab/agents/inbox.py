@@ -21,6 +21,11 @@ without one.
 * fresh / continues: the same-data guard (openlab.study.ledger) refused a run; args {why} / {continues: "../demo"}.
   Approving writes `[study] fresh` / `continues` into study.toml and records it as a person's amendment (or the
   person's seal, before the first run).
+* instrument: registering an instrument version (openlab.study.instruments), args {name, entry, source, runtime,
+  python, node, binaries, env_files, env_cmds, env, capabilities, secrets, config, outputs, state, timeout, include,
+  exclude, redact}: approving fingerprints it again, shows exactly what the version holds, and registers it.
+* instrument_run: one run of a live-order instrument, args {instrument: NAME@VERSION, args: [...], study, note}:
+  approving signs the authority for that run and runs it, as the person.
 * other: the decision only.
 A request that carries none of what its kind needs is refused when it is filed (`check_request`), so an approval
 can never be a no-op. A denial does nothing but record why; the agent reads it with agent_inbox_item.
@@ -39,7 +44,11 @@ BUDGET_KEYS = ("usd", "minutes", "turns")
 #: the inbox item being decided now, so the act it performs does not settle that same item a second time
 DECIDING: contextvars.ContextVar = contextvars.ContextVar("openlab_deciding", default=None)
 #: kinds whose approval runs long (the holdout run): `openlab inbox approve` runs them in the background
-LONG = ("holdout",)
+LONG = ("holdout", "instrument_run")
+#: what an instrument request's args may carry: the keyword arguments of openlab.study.instruments.prepare
+INSTRUMENT_ARGS = ("name", "entry", "source", "runtime", "python", "node", "binaries", "env_files", "env_cmds", "env",
+                   "capabilities", "secrets", "config", "outputs", "state", "timeout", "include", "exclude", "redact",
+                   "version_probe")
 
 
 class RequestError(ValueError):
@@ -101,6 +110,18 @@ def check_request(store: Store, agent: str, kind: str, args: Optional[dict], stu
                            'args {"study.toml": {"split": {"scheme": "kfold", "k": 5}}}: section, key, value')
     if kind in ("holdout", "amend", "approval", "screen", "fresh", "continues") and not study:
         raise RequestError(f"a {kind} request names its study", "pass study=<folder>")
+    if kind == "instrument":
+        bad = [k for k in args if k not in INSTRUMENT_ARGS]
+        if bad or not args.get("name") or not args.get("entry"):
+            raise RequestError("an instrument request carries the exact registration",
+                               'args {"name": "ibkr_paper", "entry": "python -m ibkr_paper", "source": '
+                               '"instruments/ibkr_paper", "capabilities": "read,paper-order", ...}'
+                               + (f"; unknown: {', '.join(bad)}" if bad else ""))
+    if kind == "instrument_run":
+        if not str(args.get("instrument") or "").strip() or not isinstance(args.get("args", []), list):
+            raise RequestError("an instrument_run request names the version and its exact args",
+                               'args {"instrument": "NAME@VERSION", "args": ["place", "--symbol", "F"], '
+                               '"study": "<folder>"}')
     if kind == "compute":
         return compute_request(args)
     if kind == "question":
@@ -258,6 +279,15 @@ def describe(store: Store, item: dict, approve: bool = True) -> tuple[str, list]
                        f"{m.get('running', 0)} runs running, {m.get('waiting', 0)} waiting",
                        "openlab rents nothing: approving records your answer; add the machine yourself "
                        "(see docs/box.md)"]
+        elif kind == "instrument":
+            from ..study import instruments
+            prep = instruments.prepare(store.root, **{k: v for k, v in args.items() if k in INSTRUMENT_ARGS})
+            head = f"{head} -> register instrument {prep.ident}"
+            details = instruments.preview(prep)
+        elif kind == "instrument_run":
+            head = f"{head} -> run {args.get('instrument')} as the person"
+            details = [f"args: {args.get('args') or []}", f"study: {args.get('study') or item['study'] or '(none)'}",
+                       "a live-order instrument: your signature authorises this one run"]
         elif kind in ("fresh", "continues"):
             v = args.get("why") if kind == "fresh" else args.get("continues")
             details = [f'{item["study"]}/study.toml [study] {kind} = "{v}", recorded as a person\'s amendment'
@@ -363,6 +393,17 @@ def perform(store: Store, item: dict, reason: str, by: str, pick=None) -> dict:
             s = _study(store, item)
             declare(s.folder, kind, args["why"] if kind == "fresh" else args["continues"])
             out = s.amend(why, person=True)
+        elif kind == "instrument":
+            from ..study import instruments
+            kw = {k: v for k, v in args.items() if k in INSTRUMENT_ARGS}
+            out = instruments.register(store.root, kw.pop("name"), kw.pop("entry"), reason=why, **kw)
+            out = {**out, "summary": f"registered {instruments.ident(out['payload'])}"}
+        elif kind == "instrument_run":
+            from ..study import instruments
+            out = instruments.run(store.root, args["instrument"], args.get("args") or [],
+                                  study=args.get("study") or item["study"] or "", note=args.get("note", ""),
+                                  reason=why)
+            out = {**out, "summary": f"exit {out['payload']['exit']}"}
         elif kind == "budget":
             a = store.get(item["agent"])
             b = dict(a["budget"])

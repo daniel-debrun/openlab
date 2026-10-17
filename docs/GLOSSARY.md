@@ -71,6 +71,11 @@ tag must say how it differs.
 claims at risk, gaps), ranked by what each should tell you for the time it costs. Taking an item leases it to one
 agent so no other agent does the same step.
 
+**Instrument.** A registered, immutable program that measures or acts outside the sandbox (a broker's paper account,
+a collector, a CLI), wrapping any command. Its version `NAME@VERSION` is the sha of its snapshot, entry, settings and
+environment fingerprint; a person registers it, every run is verified and recorded with its hashes, and a study pins
+the versions it runs and reads. See [instruments.md](instruments.md).
+
 ## Agents and supervision
 
 **Agent.** A Claude Code session or sub-agent, a Codex session, or an agent spawned by openlab. Each has an id, a

@@ -51,6 +51,9 @@ PERSON_VERBS = [
                 r"\bperson\.(create|rotate|unlock)\s*\("),
      "making, pinning or rotating the person key, or a person act on another machine "
      "(openlab person init|pin|rotate|act)"),
+    # appended, so the edit gate's slices below keep their verbs
+    (re.compile(r"\binstrument\s+register\b|\binstruments\.(register|commit)\s*\("),
+     "registering an instrument (openlab instrument register)"),
 ]
 #: an openlab command run under another HOME or config dir (a person key of the agent's own) or with OPENLAB_* changed
 OPENLAB_ENV = re.compile(r"(^|[\s;&|(`'\"])(export\s+|declare\s+-x\s+|env\s+(-\S+\s+)*)?(HOME|XDG_CONFIG_HOME|OPENLAB_\w+)="

@@ -4,6 +4,7 @@
     openlab init [DIR]                    OPENLAB.md, openlab.toml and .mcp.json (--claude: hooks and roles)
     openlab app --root DIR                the workspace server: the web UI and the tool API
     openlab agents | agent | watch | inbox  the agents working on the studies, and what needs a person
+    openlab instrument register|list|show|verify|run|runs  registered programs that act outside the sandbox
     openlab guide | tools | tool NAME     the tools your agent has, from a shell
     openlab doctor [--json]               what works here, and the one-line fixes
     openlab verify FILE.sig.json          check a signed file offline
@@ -51,6 +52,9 @@ COMMANDS: dict = {
                                        "which keeps the answers: `openlab bench mle --help`"),
     "box": ("openlab.boxcli:main", "this machine as openlab uses it (cores, memory, GPUs, the schedule in box.toml) and "
                                   "its queue of runs: `openlab box queue`"),
+    "instrument": ("openlab.study.instrument_cli:main", "the workspace's instruments, registered immutable programs "
+                                                       "that measure or act outside the sandbox: register (a person's), "
+                                                       "list, show, verify, run, runs"),
     "doctor": ("openlab.doctor:main", "what works in this install, and the one line that fixes what does not"),
     "verify": ("openlab.__main__:verify_main", "check a signed file (FILE.sig.json) offline"),
     "hook": ("openlab.agents.cli:main+", "a Claude Code hook (stdin JSON; written by openlab init --claude)"),
