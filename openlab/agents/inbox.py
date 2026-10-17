@@ -23,7 +23,8 @@ without one.
   person's seal, before the first run).
 * instrument: registering an instrument version (openlab.study.instruments), args {name, entry, source, runtime,
   python, node, binaries, env_files, env_cmds, env, capabilities, secrets, config, outputs, state, timeout, include,
-  exclude, redact}: approving fingerprints it again, shows exactly what the version holds, and registers it.
+  exclude, redact, usage, usage_args, usage_sub, usage_file}: approving fingerprints it again, probes its usage,
+  shows exactly what the version holds, and registers it.
 * instrument_run: one run of a live-order instrument, args {instrument: NAME@VERSION, args: [...], study, note}:
   approving signs the authority for that run and runs it, as the person.
 * other: the decision only.
@@ -48,7 +49,7 @@ LONG = ("holdout", "instrument_run")
 #: what an instrument request's args may carry: the keyword arguments of openlab.study.instruments.prepare
 INSTRUMENT_ARGS = ("name", "entry", "source", "runtime", "python", "node", "binaries", "env_files", "env_cmds", "env",
                    "capabilities", "secrets", "config", "outputs", "state", "timeout", "include", "exclude", "redact",
-                   "version_probe")
+                   "version_probe", "usage", "usage_args", "usage_sub", "usage_file")
 
 
 class RequestError(ValueError):

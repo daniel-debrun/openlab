@@ -1,8 +1,10 @@
-"""`openlab instrument register|list|show|verify|run|runs`: the workspace's instruments from a shell.
+"""`openlab instrument register|list|show|verify|run|runs|output`: the workspace's instruments from a shell.
 
-`register` is a person's act: it fingerprints the instrument, shows exactly what the version holds (its files, its
-environment parts, its capabilities) and asks for the person's passphrase, which signs the registration. `run` of a
-live-order instrument is a person's act too, signed for that one run. Everything else is open to agents.
+`register` is a person's act: it fingerprints the instrument, probes its usage (`--help`), shows exactly what the
+version holds (its files, its environment parts, its capabilities, its usage) and asks for the person's passphrase,
+which signs the registration. `run` of a live-order instrument is a person's act too, signed for that one run.
+Everything else is open to agents: `show` prints a version's usage, `run` prints the run's exit code, its redacted log
+tails and its small text outputs, and `output` reads a recorded run's back.
 """
 
 from __future__ import annotations
@@ -38,7 +40,8 @@ def _register(a) -> dict:
     kw = dict(source=a.source or "", runtime=a.runtime or "", python=a.python or "", node=a.node or "",
               binaries=a.binary, env_files=a.env_file, env_cmds=a.env_cmd, env=a.env, capabilities=a.capabilities,
               secrets=a.secrets, config=a.config or "", outputs=a.outputs, state=a.state, timeout=a.timeout,
-              include=a.include, exclude=a.exclude, redact=a.redact, version_probe=not a.no_version_probe)
+              include=a.include, exclude=a.exclude, redact=a.redact, version_probe=not a.no_version_probe,
+              usage=not a.no_usage, usage_args=a.usage_arg, usage_sub=a.usage_sub, usage_file=a.usage_file or "")
     prep = instruments.prepare(_root(a), a.name, a.entry, **kw)
     with _person(f"register instrument {prep.ident}", [*instruments.preview(prep), f"reason: {a.reason}"]):
         node = instruments.commit(_root(a), prep, a.reason)
@@ -53,7 +56,10 @@ def _list(a) -> dict:
 def _show(a) -> dict:
     reg = instruments.Registry(_root(a))
     node = instruments.resolve(reg, a.ref)
-    out = {"id": node.id, "at": node.at, "payload": node.payload}
+    usage = instruments.usage_view(reg, node.payload)
+    if a.usage:
+        return {"instrument": instruments.ident(node.payload), "usage": usage, "only": True}
+    out = {"id": node.id, "at": node.at, "payload": node.payload, "usage": usage}
     if a.verify:
         out["verify"] = instruments.verify(reg, node)
     return out
@@ -86,13 +92,18 @@ def _run(a) -> dict:
                            reason=a.reason or "")
 
 
+def _output(a) -> dict:
+    return instruments.output(_root(a), a.run, a.file or "")
+
+
 def _runs(a) -> dict:
     if not instruments.Registry.exists(_root(a)):
         return {"runs": []}
     return {"runs": instruments.runs(instruments.Registry(_root(a)), a.ref or "", a.study or "", a.n)}
 
 
-VERBS = {"register": _register, "list": _list, "show": _show, "verify": _verify, "run": _run, "runs": _runs}
+VERBS = {"register": _register, "list": _list, "show": _show, "verify": _verify, "run": _run, "runs": _runs,
+         "output": _output}
 
 
 def _text_list(out: dict) -> list:
@@ -120,7 +131,14 @@ def _text_verify(out: dict) -> list:
     return lines
 
 
+def _text_usage(u: dict, indent: str = "  ") -> list:
+    return [indent + u["head"] + (":" if u["text"] else "")] + [indent + "  " + x for x in u["text"].splitlines()]
+
+
 def _text_show(out: dict) -> list:
+    if out.get("only"):
+        u = out["usage"]
+        return [u["text"].rstrip("\n")] if u["text"] else [u["head"]]
     m = out["payload"]
     lines = [f"{instruments.ident(m)}  ({out['id']}, {out['at']})", f"  reason: {m['reason']}",
              f"  entry: {shlex.join(m['entry'])}", f"  runtime: {m['runtime']}",
@@ -131,6 +149,7 @@ def _text_show(out: dict) -> list:
              "  code: none (an external command: verified, never copied)"]
     lines += [f"  environment: {p['kind']} {p['spec'].get('path') or p['spec'].get('cmd')}  {p['sha'][:12]}"
               for p in m["environment"]["parts"]]
+    lines += _text_usage(out["usage"])
     if "verify" in out:
         lines += _text_verify({"versions": [out["verify"]]})
     return lines
@@ -141,12 +160,40 @@ def _text_run(out: dict) -> list:
     lines = [f"{out['id']}: {p['instrument']} exit {p['exit']}" + (" (timed out)" if p["timed_out"] else "")
              + f", {p['started']} -> {p['ended']}", "  outputs: " + (", ".join(
                  f"{k} ({v['bytes']} B, {v['sha256'][:12]})" for k, v in p["outputs"].items()) or "none"),
-             f"  log: {out['log']}"]
+             f"  read it again: openlab instrument output {out['id']} [FILE]"]
     if out.get("study_run"):
         lines.append(f"  on the study's record: {out['study_run']}")
     if out.get("authority"):
         lines.append(f"  under the person's authority {out['authority']}")
+    return lines + _text_view(out)
+
+
+def _text_view(out: dict) -> list:
+    """A run's returned output: the redacted log tails, then each declared output (its content, or why not)."""
+    lines = []
+    for k in ("stdout", "stderr"):
+        t = out[k]
+        if not t["text"]:
+            lines.append(f"--- {k}: empty ---")
+            continue
+        shown = len(t["text"].splitlines())
+        lines.append(f"--- {k}" + (f" (the last {shown} of {t['lines']} lines, {t['bytes']} B)" if t["truncated"]
+                                   else f" ({t['lines']} lines)") + " ---")
+        lines += t["text"].rstrip("\n").split("\n")
+    for rel, o in out["outputs"].items():
+        if "content" in o:
+            lines.append(f"--- {rel} ({o['bytes']} B, sha256 {o['sha256'][:12]}) ---")
+            lines += o["content"].rstrip("\n").split("\n") if o["content"] else []
+        else:
+            lines.append(f"--- {rel} ({o['bytes']} B, sha256 {o['sha256'][:12]}): {o['withheld']} ---")
     return lines
+
+
+def _text_output(out: dict) -> list:
+    if "file" in out:
+        return [out["content"].rstrip("\n")]
+    return [f"{out['id']}: {out['instrument']} exit {out['exit']}" + (" (timed out)" if out["timed_out"] else "")
+            + f", {out['started']} -> {out['ended']}, args {shlex.join(out['args']) or '(none)'}"] + _text_view(out)
 
 
 def _text_runs(out: dict) -> list:
@@ -157,7 +204,8 @@ def _text_runs(out: dict) -> list:
 
 TEXT = {"register": lambda o: [f"registered {o['instrument']} ({o['id']}): {o['files']} files, "
                                f"capabilities {', '.join(o['capabilities'])}"],
-        "list": _text_list, "show": _text_show, "verify": _text_verify, "run": _text_run, "runs": _text_runs}
+        "list": _text_list, "show": _text_show, "verify": _text_verify, "run": _text_run, "runs": _text_runs,
+        "output": _text_output}
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -197,11 +245,20 @@ def _parser() -> argparse.ArgumentParser:
     r.add_argument("--exclude", action="append", default=[], help="a glob to leave out of the snapshot")
     r.add_argument("--redact", action="append", default=[], help="a regex masked in the stored logs (repeatable)")
     r.add_argument("--no-version-probe", action="store_true", help="do not hash a binary's --version output")
+    r.add_argument("--usage-arg", action="append", default=[], help="what the usage probe adds to the entry "
+                   "(repeatable, in order; default --help), e.g. help or -h")
+    r.add_argument("--usage-sub", action="store_true", help="also probe each subcommand an argparse-style help lists "
+                   f"as {{a,b,c}} (at most {instruments.USAGE_MAX_SUBCOMMANDS}, "
+                   f"{instruments.USAGE_MAX_BYTES // 1024} KB in all)")
+    r.add_argument("--usage-file", default="", help="a text file with the usage, instead of probing")
+    r.add_argument("--no-usage", action="store_true", help="record no usage (for an entry that does not honour "
+                   "--help: the probe runs it, in a throwaway copy, before you sign)")
     r.add_argument("--reason", required=True, help="what the instrument is for")
     sub.add_parser("list", parents=[common], help="every registered version")
     s = sub.add_parser("show", parents=[common], help="one version's manifest")
     s.add_argument("ref", help="NAME@VERSION (or NAME with one version)")
     s.add_argument("--verify", action="store_true", help="also check every hash again")
+    s.add_argument("--usage", action="store_true", help="print only the version's usage")
     v = sub.add_parser("verify", parents=[common], help="check a version's files, config and environment again")
     v.add_argument("ref", nargs="?", default="")
     v.add_argument("--all", action="store_true", help="every version")
@@ -213,6 +270,11 @@ def _parser() -> argparse.ArgumentParser:
     u.add_argument("--reason", default="", help="why this run (required for a live-order instrument)")
     u.add_argument("--timeout", type=float, default=None)
     u.add_argument("args", nargs="*", help="after --: the instrument's own arguments")
+    o = sub.add_parser("output", parents=[common], help="a recorded run's redacted logs and outputs, each sha "
+                       "checked first")
+    o.add_argument("run", help="the run's id (as `run` and `runs` print it)")
+    o.add_argument("file", nargs="?", default="", help="one declared output, or stdout / stderr, printed whole "
+                   f"(text, at most {instruments.READ_MAX // 2 ** 20} MB)")
     n = sub.add_parser("runs", parents=[common], help="recorded runs, newest first")
     n.add_argument("ref", nargs="?", default="")
     n.add_argument("--study", default="")

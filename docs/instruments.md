@@ -13,7 +13,7 @@ It is registered once by a person, it never changes, and each run leaves a hashe
 | Guarantee | What enforces it |
 |---|---|
 | Only a person registers a version | the `instrument` node is a person node, signed with the person key; an agent's attempt is refused by the record and the hooks, and it files `agent_request(kind="instrument")` with the exact registration instead |
-| A version is what it runs with | the version is the first 12 hex of the sha256 of the manifest: entry argv, runtime, capabilities, secrets (names), fixed env, outputs, state, timeout, redaction, every snapshot file's sha256, the config's sha256 and every environment part's fingerprint |
+| A version is what it runs with | the version is the first 12 hex of the sha256 of the manifest: entry argv, runtime, capabilities, secrets (names), fixed env, outputs, state, timeout, redaction, every snapshot file's sha256, the config's sha256, every environment part's fingerprint and the usage's sha256 |
 | A version never changes | each run checks every snapshot file (none missing, changed or added), the config and every environment part again, and refuses on drift, naming what changed; new code or a new environment is a new registration |
 | Runs execute the registered code | the code is copied into the content store and a read-only snapshot, and runs execute the snapshot, never the live folder |
 | Every run is recorded | an `instrument_run` node: version, args, actor, start and end, exit code, the sha256 of the redacted stdout and stderr and of each declared output, all kept in the content store |
@@ -33,11 +33,11 @@ openlab instrument register NAME --entry "CMD" [--source DIR] [--capabilities re
     [--secrets ENV,ENV] [--env K=V] [--config FILE] [--outputs GLOB,GLOB] [--state] [--timeout S] \
     [--runtime python|node|binary|none] [--python PATH] [--node PATH] [--binary NAME] \
     [--env-file LOCKFILE] [--env-cmd "CMD"] [--include GLOB] [--exclude GLOB] [--redact REGEX] \
-    [--no-version-probe] --reason "..."
+    [--no-version-probe] [--usage-arg ARG] [--usage-sub] [--usage-file FILE | --no-usage] --reason "..."
 ```
 
-It fingerprints everything and shows what the version will hold: its files, environment parts and capabilities. Then
-it asks for your passphrase. Your passphrase signs the registration.
+It fingerprints everything, probes the entry's usage, and shows what the version will hold: its files, environment
+parts, capabilities and usage. Then it asks for your passphrase. Your passphrase signs the registration.
 
 ### Options
 
@@ -69,6 +69,35 @@ combination goes into the version.
 | file (`--env-file`, repeatable) | any lockfile: `uv.lock`, `requirements.txt`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` |
 | cmd (`--env-cmd`, repeatable) | the stdout of a command, such as `uv pip freeze --python .venv/bin/python` or `mycli --list-plugins` |
 
+### The usage
+
+An instrument is a command, and its `--help` is its contract: it tells an agent which subcommands and flags exist.
+Register runs the entry with `--help` and keeps what it prints as part of the version.
+
+- The probe runs **before** the passphrase prompt, and its output is part of what you read before you sign.
+- It runs in a throwaway copy of what a run gets:
+  - the snapshot, read-only;
+  - an empty output folder and state folder;
+  - the config;
+  - the same minimal environment, with the declared secrets that are set.
+
+  It has a 10 s timeout and makes no network assumptions. stdout and stderr are captured together, then the secrets'
+  values and the `--redact` patterns are masked.
+- The text goes into the content store. Its sha256 goes into the manifest, so it is part of the version hash.
+- A probe that exits nonzero or times out does not refuse the registration. It is recorded as
+  `usage: unavailable (exit 2)` or `usage: unavailable (timed out after 10s)`, and whatever it printed is kept.
+
+| Option | Effect |
+|---|---|
+| `--usage-arg ARG` (repeatable) | what the probe adds to the entry, instead of `--help`: `help`, `-h` |
+| `--usage-sub` | also probes each subcommand an argparse-style help lists as `{a,b,c}` (`ENTRY a --help`, ...): at most 40 subcommands and 64 KB in all. An option's choices (`--mode {x,y}`) are not subcommands |
+| `--usage-file FILE` | keeps that file's text as the usage, without probing |
+| `--no-usage` | records no usage. Use it for an entry that does not honour `--help`, because the probe runs the entry |
+
+A version registered before usage capture keeps its version and hash. `show` says
+`usage: not recorded (registered before usage capture)`. To give it a usage, register it again: that is a new
+version, and studies that pin the old one need a person's pin amendment.
+
 ### Capabilities
 
 | Capability | Meaning |
@@ -81,7 +110,8 @@ combination goes into the version.
 ```
 openlab instrument run NAME@VERSION [--study STUDY] [--note ...] [--reason ...] -- ARGS...
 openlab instrument verify NAME@VERSION | --all
-openlab instrument list | show REF [--verify] | runs [REF] [--study STUDY]
+openlab instrument list | show REF [--verify] [--usage] | runs [REF] [--study STUDY]
+openlab instrument output RUN_ID [FILE]
 ```
 
 A run executes outside bwrap, in a per-run folder (`.openlab/instruments/runs/NAME@V/<time>/out`, its working
@@ -95,11 +125,49 @@ directory). It gets a minimal environment:
   versions), `OPENLAB_INSTRUMENT_CONFIG` and `OPENLAB_INSTRUMENT_CAPABILITIES`;
 - for a python entry, `PYTHONPATH` set to the snapshot, so `python -m pkg` finds its package.
 
-The files matching `--outputs`, written in the run folder, are hashed and kept. A version is one exact thing, so a
-bare `NAME` is accepted only while it has one version.
+The files matching `--outputs`, written in the run folder, are hashed and kept as written. A version is one exact
+thing, so a bare `NAME` is accepted only while it has one version.
 
-Agents have the same verbs as tools: `instrument_list`, `instrument_show`, `instrument_verify`, `instrument_run` and
-`instrument_runs`. Over MCP, call them as `openlab_tool(name="instrument_run", args={...})`.
+### What a run returns
+
+Besides the run id and hashes, `run` returns what its caller needs to act on:
+
+- the exit code;
+- the stdout and stderr tails: the last 200 lines, at most 32 KB each, redacted as stored;
+- each declared output's content, if it is text (UTF-8: JSON, CSV, ...) of at most 256 KB.
+  - A larger output is withheld, shown with its size, its sha and `too large; materialise it in a study`.
+  - A binary output (parquet) is withheld the same way, as `not text`.
+
+Every returned text has the secrets' values and the `--redact` patterns masked. A text output that the redaction
+changes also keeps its redacted copy in the content store, and that copy is what a caller is shown. The output itself
+stays as written, because that is what a dataset reads.
+
+```
+$ openlab instrument run tcli@0abec38ad18e -- positions
+instrument_run:235d66c4e071: tcli@0abec38ad18e exit 0, 2026-10-17T19:04:17.926+00:00 -> 2026-10-17T19:04:17.958+00:00
+  outputs: big.txt (307200 B, def89517b7d1), blob.bin (1024 B, 785b0751fc2c), positions.json (67 B, 5a28252c3522)
+  read it again: openlab instrument output instrument_run:235d66c4e071 [FILE]
+--- stdout (1 lines) ---
+2 positions
+--- stderr (1 lines) ---
+token [secret API_TOKEN]
+--- positions.json (67 B, sha256 5a28252c3522) ---
+[{"sym": "F", "qty": 99, "acct": "[redacted]", "tok": "[secret API_TOKEN]"}]
+--- big.txt (307200 B, sha256 def89517b7d1): too large; materialise it in a study ---
+--- blob.bin (1024 B, sha256 785b0751fc2c): not text; materialise it in a study ---
+```
+
+`openlab instrument output RUN_ID` prints a recorded run again, from the content store. It checks each sha first and
+refuses a changed blob. `instrument output RUN_ID FILE` prints one declared output, or `stdout` / `stderr`, whole,
+if it is text of at most 4 MB. It reads only the instrument record's runs and their blobs. Holdout data and the study
+records stay masked as before.
+
+A run recorded before this redacted copy existed is masked when it is read: with the `--redact` patterns, and with
+the values of the declared secrets that are set in the reader's environment.
+
+Agents have the same verbs as tools: `instrument_list`, `instrument_show` (with `usage_only`), `instrument_verify`,
+`instrument_run`, `instrument_output` and `instrument_runs`. Over MCP, call them as
+`openlab_tool(name="instrument_run", args={...})`.
 
 ## Studies pin versions, and read their outputs
 
@@ -145,7 +213,7 @@ openlab instrument register jq --entry "jq" --reason "the JSON filter the recipe
 
 - `record.db`, the instrument record: append-only and hash-chained, with signed person nodes pinned to the
   workspace's key;
-- `blobs/`, the content store for files, configs, logs and outputs;
+- `blobs/`, the content store for files, configs, usages, logs and outputs (with their redacted copies);
 - `snapshots/`, read-only, rebuilt from the content store when missing;
 - `runs/`, each run's folder;
 - `state/<name>/`.

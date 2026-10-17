@@ -2621,6 +2621,9 @@ class Instrument(Body):
     environment: dict
     source: str
     reason: str
+    #: the entry's usage (its --help, probed at register): {status, args, reason, subcommands, sha256, bytes}, the
+    #: text in the content store; part of the version when recorded, absent from registrations made before it was
+    usage: dict = dataclasses.field(default_factory=dict)
 
     def check(self, rec, actor, links):
         from .instruments import CAPABILITIES, NAME, manifest_sha
@@ -2637,6 +2640,10 @@ class Instrument(Body):
         _sha(self.config, "instrument config sha")
         for rel, f in self.files.items():
             _sha(f.get("sha256", ""), f"instrument file {rel}")
+        if self.usage:
+            if self.usage.get("status") not in ("ok", "unavailable", "supplied", "skipped"):
+                raise StudyError("an instrument's usage has no status", "ok, unavailable, supplied or skipped")
+            _sha(self.usage.get("sha256", ""), "instrument usage sha")
         if manifest_sha(dataclasses.asdict(self)) != self.sha or self.version != self.sha[:12]:
             raise StudyError("the instrument's version is not its manifest's sha256",
                              "a version is computed from what it runs, never typed")
@@ -2695,6 +2702,7 @@ class InstrumentRun(Body):
             _sha(v, f"instrument_run {what}")
         for path, o in self.outputs.items():
             _sha(o.get("sha256", ""), f"instrument_run output {path}")
+            _sha(o.get("redacted", ""), f"instrument_run output {path} (redacted)")
         if set(self.capabilities) & set(PERSON_CAPABILITIES):
             if actor != "person":
                 raise StudyError(f"{self.instrument} can place live orders: its runs are the person's",

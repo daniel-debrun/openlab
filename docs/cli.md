@@ -36,9 +36,10 @@ trial, alpha budget, frontier, lattice, level).
 
 | Command | What it does |
 |---|---|
-| `openlab instrument register NAME --entry CMD [--source DIR] ... --reason R` | register a version (the person's: it shows what the version holds and asks for your passphrase) |
-| `openlab instrument list \| show REF [--verify] \| verify REF\|--all` | the registered versions, one manifest, every hash checked again |
-| `openlab instrument run REF [--study S] [--reason R] -- ARGS` | run a version (verified first) and record it; a `live-order` instrument is the person's to run, signed per run |
+| `openlab instrument register NAME --entry CMD [--source DIR] ... [--usage-arg A] [--usage-sub] [--usage-file F \| --no-usage] --reason R` | register a version (the person's). It probes the entry's `--help` (10 s, in a throwaway copy of the run's snapshot and environment, redacted), shows what the version holds, usage included, and asks for your passphrase. The usage's sha is part of the version |
+| `openlab instrument list \| show REF [--verify] [--usage] \| verify REF\|--all` | the registered versions; one manifest with its usage (`--usage`: only the usage); every hash checked again |
+| `openlab instrument run REF [--study S] [--reason R] -- ARGS` | run a version (verified first) and record it. It prints the exit code, the redacted stdout and stderr tails (200 lines / 32 KB each), and each declared output's content if it is text of at most 256 KB. A `live-order` instrument is the person's to run, signed per run |
+| `openlab instrument output RUN_ID [FILE]` | a recorded run's redacted logs and outputs, read back from the content store with each sha checked; `FILE` (an output, `stdout` or `stderr`) prints that one whole (text, at most 4 MB) |
 | `openlab instrument runs [REF] [--study S]` | the recorded runs |
 
 See [instruments.md](instruments.md).

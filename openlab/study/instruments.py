@@ -15,7 +15,11 @@ Its version is the sha256 of a manifest that holds everything it runs with:
   and the sha256 of every installed distribution's files, an editable install's tree included), node (the binary,
   `node --version`, node_modules), a binary (its resolved path, its sha256 and its `--version` output), any lockfile
   (`--env-file`) and any command whose stdout is hashed (`--env-cmd`);
-* its config file's sha256.
+* its config file's sha256;
+* its usage: the entry's `--help` (or `--usage-arg`s, and with `--usage-sub` each argparse subcommand's), probed at
+  register in a throwaway copy of the run's snapshot and environment (10 s each, redacted), kept in the content store
+  by its sha256. A failed probe is recorded as unavailable, not refused; a registration from before usage capture
+  has none and hashes as it always did.
 
 Registering is a person's act: an `instrument` node signed with the person key, on the workspace's instrument record
 (`<workspace>/.openlab/instruments/record.db`, append-only and hash-chained like a study's, so the team shares one).
@@ -32,6 +36,10 @@ also written on that study's record, and only an instrument the study pins (`[in
 person's field) can run there. A study's dataset can come from an instrument's output (`[data.x] instrument = "alias"`,
 `output = "file"`): materialise takes the latest successful recorded run of the pinned version that wrote it, checks
 its sha256 and registers it like any dataset.
+
+A run returns to its caller its exit code, the redacted stdout and stderr tails and each declared output's content
+when it is text of at most INLINE_MAX (else its size, sha and why it is withheld); `output(RUN, FILE)` reads a
+recorded run back from the content store, each sha checked first.
 
 Capabilities: `read`, `write`, `network`, `paper-order` (agents may run it) and `live-order`, which makes every run a
 person's act: a signed `instrument_authority` node, written before the run with its exact args, that one run links.
@@ -73,6 +81,14 @@ MAX_FILES, MAX_BYTES = 5000, 200 * 2 ** 20          # a snapshot's limits: an in
 OUTPUT_MAX_BYTES = 1024 * 2 ** 20                   # what one run's declared outputs may store
 TIMEOUT = 3600.0
 PROBE_TIMEOUT = 60.0
+USAGE_ARGS = ("--help",)                            # the usage probe: the entry with these, at register
+USAGE_TIMEOUT = 10.0                                # seconds one usage probe may take
+USAGE_MAX_SUBCOMMANDS, USAGE_MAX_BYTES = 40, 64 * 1024
+TAIL_LINES, TAIL_BYTES = 200, 32 * 1024             # what a run returns of each log
+INLINE_MAX = 256 * 1024                             # an output returned inline (text, at most this size)
+READ_MAX = 4 * 2 ** 20                              # an output read whole by `instrument output RUN FILE`
+WITHHELD = "too large; materialise it in a study"
+PREVIEW_USAGE_LINES = 60                            # of the usage, in what the person reads before signing
 BASE_ENV = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "USER", "LOGNAME", "TMPDIR", "TERM")
 PLACEHOLDERS = ("snapshot", "out", "state", "config")
 ENV_PREFIX = "OPENLAB_INSTRUMENT"
@@ -422,6 +438,7 @@ class Prepared:
     files: dict = field(default_factory=dict)     # rel -> absolute source path
     source: str = ""
     config_file: str = ""
+    usage_text: str = ""                          # the probed (or supplied) usage, redacted; its sha is in the manifest
 
     @property
     def version(self) -> str:
@@ -438,8 +455,12 @@ MANIFEST_KEYS = ("name", "entry", "runtime", "capabilities", "secrets", "env", "
 
 def manifest_sha(payload: dict) -> str:
     """The version's full sha256: of the manifest's fields, canonical (the reason and source path are not part of
-    what runs)."""
-    return sha_bytes(canonical({k: payload[k] for k in MANIFEST_KEYS}).encode())
+    what runs). The usage (how the entry says it is called, by its sha) is part of it when it was recorded; a
+    registration from before usage capture has none, and hashes as it always did."""
+    fields = {k: payload[k] for k in MANIFEST_KEYS}
+    if payload.get("usage"):
+        fields["usage"] = payload["usage"]
+    return sha_bytes(canonical(fields).encode())
 
 
 def _list(v) -> list:
@@ -468,9 +489,12 @@ def _fixed_env(env) -> dict:
 def prepare(root, name: str, entry, *, source: str = "", runtime: str = "", python: str = "", node: str = "",
             binaries=(), env_files=(), env_cmds=(), env=None, capabilities=("read",), secrets=(), config: str = "",
             outputs=(), state: bool = False, timeout: Optional[float] = None, include=(), exclude=(), redact=(),
-            version_probe: bool = True) -> Prepared:
+            version_probe: bool = True, usage: bool = True, usage_args=(), usage_sub: bool = False,
+            usage_file: str = "") -> Prepared:
     """The registration of `name` as it would be written: the files collected, every environment part
-    fingerprinted, the manifest hashed. Nothing is written."""
+    fingerprinted, the usage probed (`usage_args`, default `--help`, in a throwaway copy of the run's snapshot and
+    environment; `usage_sub` also each argparse subcommand's; `usage_file` supplies it instead; `usage=False` skips
+    it), the manifest hashed. Nothing is written into the workspace."""
     if not NAME.fullmatch(name or ""):
         raise StudyError(f"`{name}` is not an instrument name", "a name is lowercase letters, digits, - and _, "
                          "starting with a letter (at most 48)", "e.g. ibkr_paper")
@@ -626,8 +650,145 @@ def prepare(root, name: str, entry, *, source: str = "", runtime: str = "", pyth
                 "timeout": float(timeout or TIMEOUT), "redact": redact, "files": manifest_files, "links": links,
                 "config": cfg_sha, "config_suffix": Path(cfg_file).suffix if cfg_file else "",
                 "environment": {"parts": parts, "sha": environment_sha(parts)}}
+    manifest["usage"], usage_text = _usage(manifest, files, cfg_file, usage=usage, args=usage_args, sub=usage_sub,
+                                           supplied=usage_file)
     sha = manifest_sha(manifest)
-    return Prepared(name, manifest, sha, files, str(src) if src else "", cfg_file)
+    return Prepared(name, manifest, sha, files, str(src) if src else "", cfg_file, usage_text)
+
+
+# --- the usage: how the entry says it is called, probed at register --------------------------------------------------
+_SUBCOMMANDS = re.compile(r"(?:^|(?<=[\s\[(]))\{([A-Za-z0-9_][A-Za-z0-9_.:-]*(?:,[A-Za-z0-9_][A-Za-z0-9_.:-]*)+)\}")
+
+
+def parse_subcommands(text: str) -> list:
+    """The subcommands an argparse-style help lists, `{a,b,c}`, in order; an option's choices
+    (`--runtime {a,b}`) are not subcommands."""
+    for mt in _SUBCOMMANDS.finditer(text):
+        before = text[:mt.start()].rstrip().rsplit(None, 1)
+        if before and before[-1].lstrip("[(").startswith("-"):
+            continue
+        return list(dict.fromkeys(mt.group(1).split(",")))[:USAGE_MAX_SUBCOMMANDS]
+    return []
+
+
+def _usage_probe(argv: list, cwd, env: dict) -> tuple:
+    """(exit code or None, output, reason): one usage probe, stdout and stderr together, in its own process group so
+    a timeout stops everything it started."""
+    import signal
+    try:
+        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, start_new_session=True)
+    except FileNotFoundError:
+        return None, "", f"{argv[0]}: not found"
+    except OSError as e:
+        return None, "", f"{argv[0]}: {e}"
+    try:
+        out, _ = proc.communicate(timeout=USAGE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        out, _ = proc.communicate()
+        return None, out.decode("utf-8", "replace"), f"timed out after {USAGE_TIMEOUT:g}s"
+    text = out.decode("utf-8", "replace")
+    return proc.returncode, text, "" if proc.returncode == 0 else f"exit {proc.returncode}"
+
+
+def _cap(text: str, limit: int) -> str:
+    data = text.encode("utf-8")
+    if len(data) <= limit:
+        return text
+    return data[:limit].decode("utf-8", "ignore") + f"\n[usage cut at {limit // 1024} KB]\n"
+
+
+def _usage(m: dict, files: dict, cfg_file: str, *, usage: bool, args, sub: bool, supplied: str) -> tuple:
+    """(the manifest's usage record, its redacted text). The probe runs the entry with `args` (default --help) in a
+    throwaway copy of what a run gets (the snapshot, read-only; an empty output and state folder; the config; the
+    minimal environment with the secrets that are set), for at most USAGE_TIMEOUT seconds each. A failed probe is
+    recorded as unavailable, with why; it never refuses the registration."""
+    import tempfile
+    args = shlex.split(args) if isinstance(args, str) else [str(a) for a in (args or ())]
+    args = args or list(USAGE_ARGS)
+    secret_values = {k: os.environ[k] for k in m["secrets"] if os.environ.get(k)}
+    if supplied:
+        path = Path(supplied).expanduser()
+        if not path.is_file():
+            raise StudyError(f"no usage file {supplied}", fix="--usage-file names a text file with the usage")
+        text = _cap(_redact(path.read_bytes().decode("utf-8", "replace"), m, secret_values), USAGE_MAX_BYTES)
+        return ({"status": "supplied", "args": [], "reason": f"from {path.name}", "subcommands": [],
+                 "sha256": sha_bytes(text.encode("utf-8")), "bytes": len(text.encode("utf-8"))}, text)
+    if not usage:
+        return {"status": "skipped", "args": [], "reason": "--no-usage", "subcommands": [], "sha256": "",
+                "bytes": 0}, ""
+    tmp = Path(tempfile.mkdtemp(prefix="openlab-usage-"))
+    try:
+        snap = None
+        if files:
+            snap = tmp / "snapshot"
+            for rel, path in files.items():
+                data = Path(path).read_bytes()
+                if sha_bytes(data) != m["files"][rel]["sha256"]:
+                    raise StudyError(f"{rel} changed while it was being registered", fix="register again")
+                q = snap / rel
+                q.parent.mkdir(parents=True, exist_ok=True)
+                q.write_bytes(data)
+                q.chmod(0o555 if m["files"][rel].get("mode") == "x" else 0o444)
+            for rel, target in (m.get("links") or {}).items():
+                (snap / rel).parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(target, snap / rel)
+            _readonly(snap)
+        out = tmp / "out"
+        out.mkdir()
+        state_dir = tmp / "state" if m["state"] else None
+        if state_dir is not None:
+            state_dir.mkdir()
+        cfg = None
+        if cfg_file:
+            cfg = tmp / f"config{m.get('config_suffix', '')}"
+            shutil.copyfile(cfg_file, cfg)
+        argv, env = _launch(m, snap, out, state_dir, cfg, secret_values)
+        code, text, reason = _usage_probe(argv + args, out, env)
+        text = _cap(_redact(text, m, secret_values), USAGE_MAX_BYTES)
+        subs = parse_subcommands(text) if sub and code == 0 else []
+        for name in subs:
+            if len(text.encode("utf-8")) >= USAGE_MAX_BYTES:
+                text += f"\n[{USAGE_MAX_BYTES // 1024} KB of usage: the other subcommands were not probed]\n"
+                break
+            c, t, why = _usage_probe(argv + [name, *args], out, env)
+            head = f"{m['name']} {name} {' '.join(args)}"
+            text += f"\n--- {head} ---\n" if c == 0 else f"\n--- {head}: unavailable ({why}) ---\n"
+            text += _redact(t, m, secret_values)
+        text = _cap(text, USAGE_MAX_BYTES)
+    finally:
+        _writable(tmp)
+        shutil.rmtree(tmp, ignore_errors=True)
+    data = text.encode("utf-8")
+    return ({"status": "ok" if code == 0 else "unavailable", "args": args, "reason": reason, "subcommands": subs,
+             "sha256": sha_bytes(data) if data else "", "bytes": len(data)}, text)
+
+
+def usage_head(u: dict) -> str:
+    """The usage's one-line state, as `show` and the registration preview print it."""
+    if not u:
+        return "usage: not recorded (registered before usage capture)"
+    if u["status"] == "skipped":
+        return "usage: not captured (--no-usage)"
+    if u["status"] == "unavailable":
+        return f"usage: unavailable ({u['reason']})"
+    how = " ".join(u["args"]) if u["status"] == "ok" else u["reason"]
+    subs = f", {len(u['subcommands'])} subcommands" if u.get("subcommands") else ""
+    return f"usage ({how}{subs}, sha256 {u['sha256'][:12]})"
+
+
+def usage_view(reg: "Registry", m: dict) -> dict:
+    """A version's usage: its record, its one-line state and its text, read from the content store (the store
+    refuses bytes that no longer match the sha)."""
+    u = dict(m.get("usage") or {})
+    text = ""
+    if u.get("sha256"):
+        text = reg.blob(u["sha256"]).decode("utf-8", "replace")
+    return {**u, "status": u.get("status", "not recorded"), "head": usage_head(m.get("usage") or {}), "text": text}
 
 
 def preview(p: Prepared) -> list:
@@ -659,6 +820,12 @@ def preview(p: Prepared) -> list:
     if m["config"]:
         lines.append(f"config: {p.config_file} (sha256 {m['config'][:12]})")
     lines.append(f"state folder: {'yes' if m['state'] else 'no'}; timeout {m['timeout']:g}s")
+    text = p.usage_text.splitlines()
+    lines.append(usage_head(m.get("usage") or {}) + (":" if text else ""))
+    lines += [f"  | {x}" for x in text[:PREVIEW_USAGE_LINES]]
+    if len(text) > PREVIEW_USAGE_LINES:
+        lines.append(f"  | ... {len(text) - PREVIEW_USAGE_LINES} more lines (all of it is kept; "
+                     "`openlab instrument show REF --usage` prints it)")
     return lines
 
 
@@ -687,8 +854,12 @@ def commit(root, p: Prepared, reason: str) -> Node:
         if sha_bytes(data) != p.manifest["config"]:
             raise StudyError("the config changed while it was being registered", fix="register again")
         reg.put_blob(data)
+    usage = p.manifest.get("usage") or {}
+    if usage.get("sha256"):
+        if reg.put_blob(p.usage_text.encode("utf-8")) != usage["sha256"]:
+            raise StudyError("the usage text is not the one the manifest names", fix="register again")
     payload = {**{k: p.manifest[k] for k in MANIFEST_KEYS}, "version": p.version, "sha": p.sha, "source": p.source,
-               "reason": reason.strip()}
+               "reason": reason.strip(), **({"usage": usage} if usage else {})}
     node = reg.add("instrument", payload, actor="person")
     _materialise_snapshot(reg, node.payload)
     return node
@@ -867,6 +1038,31 @@ def drift(v: dict) -> str:
 
 
 # --- running ----------------------------------------------------------------------------------------------------------
+def _launch(m: dict, snap, out, state_dir, cfg, secret_values: dict) -> tuple:
+    """The entry's argv (placeholders filled) and the minimal environment a run gets: PATH, HOME and the locale, the
+    fixed variables, the secrets, OPENLAB_INSTRUMENT_*, and for a python entry PYTHONPATH at the snapshot. The usage
+    probe at register gets the same, in a throwaway copy."""
+    values = {"snapshot": str(snap or ""), "out": str(out), "state": str(state_dir or ""), "config": str(cfg or "")}
+    argv = [re.sub(r"\{(" + "|".join(PLACEHOLDERS) + r")\}", lambda x: values[x.group(1)], t) for t in m["entry"]]
+    env = {k: os.environ[k] for k in BASE_ENV if k in os.environ}
+    env.update(m["env"])
+    env.update(secret_values)
+    env.update({ENV_PREFIX: f"{m['name']}@{m.get('version') or 'unregistered'}",
+                f"{ENV_PREFIX}_VERSION": m.get("version") or "", f"{ENV_PREFIX}_OUT": str(out),
+                f"{ENV_PREFIX}_CAPABILITIES": ",".join(m["capabilities"])})
+    if snap is not None:
+        env[f"{ENV_PREFIX}_SNAPSHOT"] = str(snap)
+    if state_dir is not None:
+        env[f"{ENV_PREFIX}_STATE"] = str(state_dir)
+    if cfg is not None:
+        env[f"{ENV_PREFIX}_CONFIG"] = str(cfg)
+    if m["runtime"] == "python":
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        if snap is not None:
+            env["PYTHONPATH"] = os.pathsep.join(x for x in (str(snap), m["env"].get("PYTHONPATH", "")) if x)
+    return argv, env
+
+
 def _redact(text: str, m: dict, secret_values: dict) -> str:
     for name, value in secret_values.items():
         if value and len(value) >= 4:
@@ -876,7 +1072,21 @@ def _redact(text: str, m: dict, secret_values: dict) -> str:
     return text
 
 
-def _outputs(reg: Registry, out: Path, patterns: list) -> dict:
+def _as_text(data: bytes) -> Optional[str]:
+    """The bytes as text (UTF-8, no NUL), or None: a binary output (parquet, an image) is not returned inline."""
+    if b"\0" in data:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _outputs(reg: Registry, out: Path, patterns: list, m: Optional[dict] = None,
+             secret_values: Optional[dict] = None) -> dict:
+    """The declared outputs the run wrote, each kept as written (`sha256`, what a dataset reads). A text output that
+    the redaction changes (a secret's value, a redact pattern) also keeps its redacted copy (`redacted`), the one a
+    caller is shown."""
     found: dict = {}
     total = 0
     for pat in patterns:
@@ -891,7 +1101,97 @@ def _outputs(reg: Registry, out: Path, patterns: list) -> dict:
                                  "an instrument's declared outputs are kept in the content store",
                                  "declare fewer or smaller outputs")
             found[rel] = {"sha256": reg.put_blob(data), "bytes": len(data)}
+            text = _as_text(data) if m is not None and len(data) <= READ_MAX else None
+            if text is not None:
+                masked = _redact(text, m, secret_values or {})
+                if masked != text:
+                    found[rel]["redacted"] = reg.put_blob(masked.encode("utf-8"))
     return found
+
+
+def _tail(text: str) -> dict:
+    """The last TAIL_LINES lines of a log, at most TAIL_BYTES: {text, lines, bytes, truncated}."""
+    lines = text.splitlines(keepends=True)
+    tail = "".join(lines[-TAIL_LINES:])
+    data = tail.encode("utf-8")
+    if len(data) > TAIL_BYTES:
+        tail = data[-TAIL_BYTES:].decode("utf-8", "ignore")
+        cut = tail.find("\n")
+        tail = tail[cut + 1:] if 0 <= cut < len(tail) - 1 else tail
+    nbytes = len(text.encode("utf-8"))
+    return {"text": tail, "lines": len(lines), "bytes": nbytes, "truncated": len(tail.encode("utf-8")) < nbytes}
+
+
+def _secrets_here(m: dict) -> dict:
+    return {k: os.environ[k] for k in m["secrets"] if os.environ.get(k)}
+
+
+def _output_text(reg: Registry, rel: str, o: dict, m: dict, secret_values: dict, limit: int) -> tuple:
+    """(text or None, why withheld): a declared output's content as a caller sees it, its sha checked first (the
+    kept file and its redacted copy both), redacted again with the patterns and the secrets set here."""
+    data = reg.blob(o["sha256"])                    # the content store refuses bytes that no longer match the sha
+    if len(data) > limit:
+        return None, WITHHELD
+    text = _as_text(data)
+    if text is None:
+        return None, "not text; materialise it in a study"
+    if o.get("redacted"):
+        text = reg.blob(o["redacted"]).decode("utf-8", "replace")
+    return _redact(text, m, secret_values), ""
+
+
+def run_view(reg: Registry, payload: dict, m: dict, secret_values: Optional[dict] = None) -> dict:
+    """What a run's caller reads: its exit code, the redacted stdout and stderr tails, and each declared output's
+    content when it is text and at most INLINE_MAX (else its size, sha and why it is withheld). Each sha is checked
+    against the content store first."""
+    sv = _secrets_here(m) if secret_values is None else secret_values
+    view: dict = {"exit": payload["exit"], "timed_out": payload["timed_out"]}
+    for k in ("stdout", "stderr"):
+        view[k] = _tail(_redact(reg.blob(payload[k]).decode("utf-8", "replace"), m, sv))
+    outs: dict = {}
+    for rel, o in payload["outputs"].items():
+        text, why = _output_text(reg, rel, o, m, sv, INLINE_MAX)
+        outs[rel] = {"bytes": o["bytes"], "sha256": o["sha256"], **({"content": text} if why == "" else
+                                                                     {"withheld": why})}
+    view["outputs"] = outs
+    return view
+
+
+def output(root, run_id: str, file: str = "") -> dict:
+    """A recorded run's redacted logs and outputs, read back from the content store with each sha checked (a
+    changed blob is refused). Without `file`: as `run` returned them (log tails, small text outputs inline). With
+    `file` (a declared output, or `stdout` / `stderr`): that one whole, if it is text and at most READ_MAX. Nothing
+    but the instrument record's runs and their blobs is read."""
+    reg = Registry(root)
+    try:
+        node = reg.get(run_id)
+    except StudyError:
+        node = None
+    if node is None or node.kind != "instrument_run":
+        raise StudyError(f"no instrument run `{run_id}` on the instrument record",
+                         "a run is named by the id `instrument run` printed (on the instrument record)",
+                         "`openlab instrument runs` lists them")
+    p = node.payload
+    m = reg.get(p["registration"]).payload
+    sv = _secrets_here(m)
+    head = {"id": node.id, "instrument": p["instrument"], "args": p["args"], "study": p["study"],
+            "started": p["started"], "ended": p["ended"]}
+    if not file:
+        return {**head, **run_view(reg, p, m, sv)}
+    if file in p["outputs"]:
+        o = p["outputs"][file]
+        text, why = _output_text(reg, file, o, m, sv, READ_MAX)
+        if why:
+            raise StudyError(f"{file} is {o['bytes']} bytes: {why}" if why == WITHHELD else f"{file}: {why}",
+                             f"its sha256 is {o['sha256']}; `instrument output` prints text of at most "
+                             f"{READ_MAX // 2 ** 20} MB", f"declare a study dataset from it ([data.x] instrument = "
+                             f"\"alias\", output = \"{file}\") and materialise it")
+        return {**head, "file": file, "bytes": o["bytes"], "sha256": o["sha256"], "content": text}
+    if file in ("stdout", "stderr"):
+        text = _redact(reg.blob(p[file]).decode("utf-8", "replace"), m, sv)
+        return {**head, "file": file, "bytes": len(text.encode("utf-8")), "sha256": p[file], "content": text}
+    raise StudyError(f"run {node.id} has no output `{file}`",
+                     f"its outputs: {', '.join(p['outputs']) or 'none'}; and its logs: stdout, stderr")
 
 
 def _open_study(reg: Registry, study: str):
@@ -946,24 +1246,8 @@ def run(root, ref: str, args=(), *, study: str = "", note: str = "", timeout: Op
     if state_dir is not None:
         state_dir.mkdir(parents=True, exist_ok=True)
     cfg = reg.config_path(ident(m), m.get("config_suffix", "")) if m.get("config") else None
-    values = {"snapshot": str(snap or ""), "out": str(out), "state": str(state_dir or ""), "config": str(cfg or "")}
-    argv = [re.sub(r"\{(" + "|".join(PLACEHOLDERS) + r")\}", lambda x: values[x.group(1)], t) for t in m["entry"]]
+    argv, env = _launch(m, snap, out, state_dir, cfg, secret_values)
     argv += args
-    env = {k: os.environ[k] for k in BASE_ENV if k in os.environ}
-    env.update(m["env"])
-    env.update(secret_values)
-    env.update({ENV_PREFIX: ident(m), f"{ENV_PREFIX}_VERSION": m["version"], f"{ENV_PREFIX}_OUT": str(out),
-                f"{ENV_PREFIX}_CAPABILITIES": ",".join(m["capabilities"])})
-    if snap is not None:
-        env[f"{ENV_PREFIX}_SNAPSHOT"] = str(snap)
-    if state_dir is not None:
-        env[f"{ENV_PREFIX}_STATE"] = str(state_dir)
-    if cfg is not None:
-        env[f"{ENV_PREFIX}_CONFIG"] = str(cfg)
-    if m["runtime"] == "python":
-        env["PYTHONDONTWRITEBYTECODE"] = "1"
-        if snap is not None:
-            env["PYTHONPATH"] = os.pathsep.join(x for x in (str(snap), m["env"].get("PYTHONPATH", "")) if x)
     started = _now()
     timed_out = False
     with open(run_dir / "stdout.log", "wb") as fo, open(run_dir / "stderr.log", "wb") as fe:
@@ -984,12 +1268,13 @@ def run(root, ref: str, args=(), *, study: str = "", note: str = "", timeout: Op
         logs[k] = reg.put_blob(text.encode("utf-8"))
     payload = {"instrument": ident(m), "registration": node.id, "args": args, "note": note, "study": study,
                "started": started, "ended": ended, "exit": code, "timed_out": timed_out, "stdout": logs["stdout"],
-               "stderr": logs["stderr"], "outputs": _outputs(reg, out, m["outputs"]),
+               "stderr": logs["stderr"], "outputs": _outputs(reg, out, m["outputs"], m, secret_values),
                "environment": m["environment"]["sha"], "capabilities": m["capabilities"],
                "run_dir": str(run_dir.relative_to(reg.root)), "registry_run": ""}
     actor = "person" if live else "agent"
     rn = reg.add("instrument_run", payload, actor=actor, links=[("under", authority.id)] if authority else ())
-    res = {**_node(rn), "authority": authority.id if authority else "", "log": str(run_dir / "stdout.log")}
+    res = {**_node(rn), "authority": authority.id if authority else "", "log": str(run_dir / "stdout.log"),
+           **run_view(reg, payload, m, secret_values)}
     if st is not None:
         res["study_run"] = st._act("instrument_run", {"instrument": ident(m), "args": args}, actor, lambda: _node(
             st.record.add("instrument_run", {**payload, "registry_run": rn.id}, actor=actor)))["id"]

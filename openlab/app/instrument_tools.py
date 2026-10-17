@@ -19,13 +19,18 @@ def instrument_list(ctx: ToolContext) -> dict:
 
 
 @tool("workspace")
-def instrument_show(ctx: ToolContext, ref: str, verify: bool = False) -> dict:
-    """One version's manifest (`ref`: NAME@VERSION, or NAME with one version); verify=true checks every hash again."""
+def instrument_show(ctx: ToolContext, ref: str, verify: bool = False, usage_only: bool = False) -> dict:
+    """One version's manifest and its usage, the entry's --help as probed when it was registered (`ref`:
+    NAME@VERSION, or NAME with one version); usage_only=true returns only the usage; verify=true checks every hash
+    again."""
     from ..study import instruments
     with _errors():
         reg = instruments.Registry(ctx.root)
         node = instruments.resolve(reg, ref)
-        out = {"id": node.id, "at": node.at, "payload": node.payload}
+        usage = instruments.usage_view(reg, node.payload)
+        if usage_only:
+            return {"instrument": instruments.ident(node.payload), "usage": usage}
+        out = {"id": node.id, "at": node.at, "payload": node.payload, "usage": usage}
         if verify:
             out["verify"] = instruments.verify(reg, node)
         return out
@@ -43,13 +48,26 @@ def instrument_verify(ctx: ToolContext, ref: str) -> dict:
 @tool("workspace", mutates=True)
 def instrument_run(ctx: ToolContext, ref: str, args: Optional[list] = None, study: str = "", note: str = "") -> dict:
     """Run a registered version (verified first) with `args`; recorded, and with `study` also on that study's record
-    (it must pin the version: `ref` may be its alias). A live-order instrument is refused: file agent_request kind
-    instrument_run."""
+    (it must pin the version: `ref` may be its alias). Returns the run's id and hashes, its exit code, the redacted
+    stdout and stderr tails (the last 200 lines, 32 KB each) and each declared output's content when it is text of at
+    most 256 KB (else its size, sha and why it is withheld). A live-order instrument is refused: file agent_request
+    kind instrument_run."""
     from ..study import instruments
     no_agent_code("running an instrument")
     with _errors():
         return instruments.run(ctx.root, ref, [str(a) for a in (args or [])],
                                study=str(ctx.path(study).relative_to(ctx.root)) if study else "", note=note)
+
+
+@tool("workspace")
+def instrument_output(ctx: ToolContext, run: str, file: str = "") -> dict:
+    """A recorded instrument run's redacted logs and outputs, read back with each sha checked (a changed blob is
+    refused). `run`: the run's id (instrument_run and instrument_runs return it). Without `file`: the exit code, the
+    log tails and the small text outputs, as instrument_run returned them; with `file` (a declared output, or stdout /
+    stderr): that one whole, if it is text of at most 4 MB."""
+    from ..study import instruments
+    with _errors():
+        return instruments.output(ctx.root, run, file)
 
 
 @tool("workspace")

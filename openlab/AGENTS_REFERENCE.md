@@ -232,11 +232,20 @@ when every binding resolves and every lint finding is fixed or waived), `code/`,
 
 An instrument is a registered, immutable program that acts outside the sandbox (a broker's paper account, a collector,
 a CLI). Its version `NAME@VERSION` is the sha of its snapshot, entry, settings and environment fingerprint.
-- `instrument_list`, `instrument_show(ref, verify)`, `instrument_verify(ref)`: what is registered, and whether a version
-  still hashes to its registration.
+- `instrument_list`, `instrument_show(ref, verify, usage_only)`, `instrument_verify(ref)`: what is registered, and
+  whether a version still hashes to its registration. `instrument_show` returns the version's usage: the entry's
+  `--help`, probed when it was registered. Read it first, because it lists the subcommands and flags the instrument
+  takes.
 - `instrument_run(ref, args, study, note)` runs a version after verifying it, and records the run with the hashes of
   its logs and outputs. With `study`, the study must pin the version (`ref` may be its alias), and the run is also on
-  the study's record. Drift is refused, naming what changed.
+  the study's record. Drift is refused, naming what changed. It returns:
+  - the exit code;
+  - the redacted stdout and stderr tails (the last 200 lines, 32 KB each);
+  - each declared output's content, if it is text of at most 256 KB. A larger or binary output is withheld: its size
+    and sha are given, and you read it through a study dataset.
+- `instrument_output(run, file)`: a recorded run read back with each sha checked. Without `file` it returns the same
+  as `instrument_run` did. With `file` (an output, `stdout` or `stderr`) it returns that one whole, up to 4 MB of
+  text.
 - `instrument_runs(ref, study, n)`: the recorded runs.
 - A dataset `[data.x] instrument = "alias"`, `output = "file"` materialises from the latest successful run of the
   pinned version that wrote the file.
