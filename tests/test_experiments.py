@@ -528,6 +528,80 @@ def test_the_cli_writes_a_template_and_the_person_starts_with_the_passphrase(lab
     assert json.loads(capsys.readouterr().out.splitlines()[-1])["again"] is False
 
 
+def test_every_cli_verb_prints_its_text_without_json(lab, capsys, fake_crontab, spawned, tmp_path, monkeypatch):
+    """B10: the text output of each verb reads the keys its function returns (`new --file` crashed on 'written')."""
+    from openlab.agents.store import Store
+    from openlab.study import experiment_cli
+    ws, folder, _, person = lab
+    root = ["--root", str(ws)]
+
+    def run(*argv, code=0):
+        assert experiment_cli.main([*argv, *root]) == code
+        o = capsys.readouterr()
+        return o.out, o.err
+
+    draft = tmp_path / "paper_trial.toml"                                       # new --file: a valid spec
+    draft.write_text(spec())
+    out, _ = run("new", "tender", "paper_trial", "--file", str(draft))
+    assert out.startswith("wrote tender/experiments/paper_trial.toml (sha ") and "): valid" in out
+    assert "next: ask the person to start it: experiment_request(study='tender', name='paper_trial'" in out
+    assert experiment_cli.main(["new", "tender", "paper_trial", "--file", str(draft), *root, "--json"]) == 0
+    j = json.loads(capsys.readouterr().out)
+    assert {"file", "state", "sha", "spec", "written", "ok", "error"} <= set(j) and j["written"] and j["ok"]
+    bad = tmp_path / "bad.toml"                                                 # new --file: an invalid spec
+    bad.write_text(spec().replace("passes = 3", "max_failures = 2"))
+    out, err = run("new", "tender", "paper_trial", "--file", str(bad), code=1)
+    assert out == "" and "needs passes or until" in err and save(folder, spec()).read_text() == spec()
+    _, err = run("new", "tender", "paper_trial", "--file", str(tmp_path / "missing.toml"), code=1)
+    assert "cannot read the spec file" in err
+    out, _ = run("new", "tender", "paper_trial")                                # new: the draft there, unwritten
+    assert out.startswith("tender/experiments/paper_trial.toml (sha ") and "): valid" in out
+    out, _ = run("new", "tender", "trial2")                                     # new: the template, written
+    assert out.startswith("wrote tender/experiments/trial2.toml") and "): valid" in out
+    save(folder, spec(name="broken").replace("passes = 3", "max_failures = 2"), "broken")
+    out, _ = run("new", "tender", "broken")                                     # new: an invalid draft there
+    assert "tender/experiments/broken.toml" in out and "not yet valid: " in out and "needs passes or until" in out
+    assert "next:" not in out
+    out, _ = run("list")
+    assert "tender/paper_trial: draft" in out and "tender/broken: draft" in out
+    out, _ = run("status", "tender", "paper_trial")
+    assert "paper_trial (tender): DRAFT" in out
+
+    Store(ws).register("lead-1", "spawned", role="lead", status="running", budget={"usd": 5})
+    monkeypatch.setenv("OPENLAB_AGENT", "lead-1")
+    out, _ = run("request", "tender", "paper_trial", "--reason", "the forward paper trial")
+    assert ": requested, inbox #1 (sha " in out and "the person starts it: approving inbox #1" in out
+    out, _ = run("new", "tender", "paper_trial")
+    assert "): valid; it is requested" in out and "next:" not in out
+    monkeypatch.delenv("OPENLAB_AGENT")
+    person.answers()
+    out, _ = run("start", "tender", "paper_trial", "--reason", "go")
+    assert "started paper_trial: 2 crontab line(s)" in out and out.count("::paper_trial::") == 2 and "Roadmap: " in out
+    out, _ = run("job", "tender", "paper_trial", "scan")
+    assert json.loads(out)["ran"] in (True, False)
+
+    def no_spawn(root, **kw):
+        raise RuntimeError("no agents here")
+    monkeypatch.setattr(E, "SPAWNER", no_spawn)
+    out, _ = run("kill", "tender", "paper_trial", "--reason", "done")
+    assert ": killed" in out and "reaction: not started: no agents here" in out and "{" not in out
+    monkeypatch.setattr(E, "SPAWNER", lambda root, **kw: {"id": "reviewer-000001"})
+    out, _ = run("react", "tender", "paper_trial", "--spawn")
+    assert json.loads(out) == {"ok": True, "agent": "reviewer-000001"}
+    end = E.status(ws, "tender", "paper_trial")["end"]["id"]
+    out, _ = run("react", "tender", "paper_trial", "--verdict", "inconclusive", "--conclusion", "killed early",
+                 "--rests-on", end)
+    assert json.loads(out)["state"] == "reacted"
+
+
+def test_the_cli_kill_text_names_the_reaction_agent(lab, capsys, spawned):
+    from openlab.study import experiment_cli
+    ws, _, _, _ = lab
+    started(lab)
+    assert experiment_cli.main(["kill", "tender", "paper_trial", "--reason", "done", "--root", str(ws)]) == 0
+    assert capsys.readouterr().out.splitlines()[1] == "  reaction: reviewer-000001"
+
+
 def test_the_tools_set_up_request_read_kill_and_conclude(lab, monkeypatch):
     from openlab.agents.store import Store
     from openlab.app import ToolContext, dispatch

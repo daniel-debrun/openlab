@@ -23,10 +23,16 @@ def _ws(a) -> Path:
 
 
 def _new(a) -> dict:
+    """Both paths return the keys of experiments.write (file, state, sha, spec; next when it can be requested), plus
+    `written` (this call wrote the file), `ok` (the draft there is valid) and `error` (why not; empty when it is)."""
     ws, folder, rel = E.locate(_ws(a), a.study)
     p = E.spec_file(folder, a.name)
     if a.file:
-        return E.write(ws, rel, a.name, Path(a.file).read_text(encoding="utf-8"))
+        try:
+            text = Path(a.file).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise StudyError(f"cannot read the spec file {a.file}", str(e)) from None
+        return {**E.write(ws, rel, a.name, text), "written": True, "ok": True, "error": ""}
     if not p.is_file():
         if not E.NAME.fullmatch(a.name):
             raise StudyError(f"`{a.name}` is not an experiment name", "1-48 of a-z, 0-9, _ and -, starting with a letter")
@@ -40,8 +46,12 @@ def _new(a) -> dict:
         spec, err = E.parse(text, folder, a.name, ws), ""
     except StudyError as e:
         spec, err = None, e.error + (f" ({e.meaning})" if e.meaning else "")
-    return {"file": str(p.relative_to(ws)), "written": written, "sha": sha, "ok": spec is not None, "error": err,
-            "spec": spec}
+    state = E.state_of(E.nodes(E._record(folder, create=False), a.name), sha)
+    out = {"file": str(p.relative_to(ws)), "state": state, "sha": sha, "spec": spec, "written": written,
+           "ok": spec is not None, "error": err}
+    if spec is not None and state == "draft":
+        out["next"] = f"ask the person to start it: experiment_request(study={rel!r}, name={a.name!r}, reason=...)"
+    return out
 
 
 def _list(a) -> dict:
@@ -157,14 +167,38 @@ def _text_list(o: dict) -> list:
 
 
 def _text_new(o: dict) -> list:
-    return [("wrote " if o["written"] else "") + f"{o['file']} (sha {o['sha'][:12]}): "
-            + ("valid" if o["ok"] else f"not yet valid: {o['error']}")]
+    """`new`'s result (see _new): "wrote FILE (sha ...): valid", or why the draft is not valid yet."""
+    valid = o.get("spec") is not None and not o.get("error")
+    state = o.get("state") or "draft"
+    lines = [("wrote " if o.get("written") else "") + f"{o['file']} (sha {o['sha'][:12]}): "
+             + ("valid" if valid else f"not yet valid: {o.get('error') or '?'}")
+             + ("" if state == "draft" else f"; it is {state}")]
+    if o.get("next"):
+        lines.append(f"  next: {o['next']}")
+    return lines
+
+
+def _text_reaction(r: dict) -> str:
+    """fire()'s outcome: the reaction agent, or why it could not be spawned."""
+    if r.get("ok"):
+        return f"{r['agent']}" + (" (already fired)" if r.get("again") is False else "")
+    return f"not started: {r.get('error') or '?'} (fire it again: openlab experiment react STUDY NAME --spawn)"
+
+
+def _text_kill(o: dict) -> list:
+    return [f"{o['id']}: {o['state']}", f"  reaction: {_text_reaction(o['reaction'])}",
+            *([f"  note: {o['note']}"] if o.get("note") else []),
+            *([f"  warning: {o['warning']}"] if o.get("warning") else [])]
+
+
+def _text_start(o: dict) -> list:
+    return [o["summary"], *[f"  {l}" for l in o["lines"]], f"  Roadmap: {o['plan_step']}"]
 
 
 TEXT = {"new": _text_new, "list": _text_list, "status": _text_status,
-        "request": lambda o: [f"{o['id']}: requested, inbox #{o['item']}", f"  {o['next']}"],
-        "start": lambda o: [o["summary"], *[f"  {l}" for l in o["lines"]]],
-        "kill": lambda o: [f"{o['id']}: {o['state']}", f"  reaction: {o['reaction']}"],
+        "request": lambda o: [f"{o['id']}: requested, inbox #{o['item']} (sha {o['sha'][:12]})", f"  {o['next']}"],
+        "start": _text_start,
+        "kill": _text_kill,
         "job": lambda o: [json.dumps(o, default=str)],
         "react": lambda o: [json.dumps(o, default=str)]}
 
