@@ -183,6 +183,486 @@ def _command_words(cmd: str) -> list[str]:
     return words
 
 
+# --- what a line only carries as data -----------------------------------------------------------------------------
+# The patterns above read the whole line, so a person verb in a grep pattern, a note's heredoc or a --reason was read as
+# an act. A small shell reader finds the few places where text is provably data and blanks them before the patterns
+# run; everything else is read as before. It also reads what the patterns cannot (a verb behind a variable, a pty
+# tool inside sh -c). A line it cannot follow is read whole, as before.
+class _Unclear(Exception):
+    """A shape the reader does not follow: the line is read whole."""
+
+
+_REDIR_OP = re.compile(r"(\d*)(&>>|&>|<<<|<<-|<<|>>|>\||>&|<&|<>|>|<)")
+_NAME_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
+_SHELLS = frozenset(("sh", "bash", "zsh", "dash", "ksh", "mksh", "ash", "fish"))
+#: what may run before the program and pass the rest on to it (skipped, with their options, to find the program)
+_RUNS_NEXT = frozenset(_WRAPPERS) | {"xargs", "parallel", "ionice", "chrt", "taskset", "doas", "unshare", "watch"}
+#: the openlab groups whose --help exits in argparse before any handler runs (tests: the person verbs' --help)
+_HELP_GROUPS = frozenset(("study", "inbox", "agent", "person", "instrument"))
+#: the groups whose free-text options below are values in every parser (none is a flag), and never run
+_TEXT_GROUPS = frozenset(("study", "instrument", "inbox", "agent"))
+_TEXT_OPTS = frozenset(("--reason", "--note", "--message", "--other", "--question", "--statement"))
+_BARE = re.compile(r"^[A-Za-z0-9_.-]*$")
+#: options of openlab parsers whose value is not a verb (read past them to find the group and verb)
+_OPENLAB_VALUE_OPTS = _TEXT_OPTS | {"--root", "--cd", "--openlab"}
+#: grep/rg options that take the next word as their value (so it is not the pattern)
+_GREP_SHORT_ARG = {"grep": "efmABCdD", "egrep": "efmABCdD", "fgrep": "efmABCdD", "rg": "efgtTmABCjMrEd"}
+_GREP_LONG_ARG = frozenset((
+    "--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--directories",
+    "--devices", "--label", "--include", "--exclude", "--exclude-dir", "--exclude-from", "--binary-files",
+    "--group-separator", "--glob", "--iglob", "--type", "--type-not", "--type-add", "--type-clear", "--replace",
+    "--encoding", "--max-depth", "--max-filesize", "--threads", "--sort", "--sortr", "--colors",
+    "--context-separator", "--field-match-separator", "--field-context-separator", "--path-separator", "--engine",
+    "--dfa-size-limit", "--regex-size-limit", "--max-columns", "--ignore-file", "--hyperlink-format", "--pre-glob"))
+#: what may stand beside a heredoc or echo written to a file without running anything (so the file is not run)
+_INERT = frozenset(("cat", "ls", "head", "tail", "wc", "echo", "printf", "true", "false", "test", "[", "diff", "cmp",
+                    "grep", "egrep", "fgrep", "mkdir", "cd", "pwd", "date", "uniq", "cut", "stat", "sha256sum",
+                    "md5sum", "realpath", "basename", "dirname", "sleep"))
+#: commands that change how the shell finds or runs the next command, or where its output goes
+_SHELL_STATE = frozenset(("alias", "unalias", "shopt", "hash", "enable", "function", "source", ".", "export", "declare",
+                          "typeset", "readonly", "local", "trap", "unset", "builtin", "set", "eval", "exec"))
+#: what reads the line's own text back (the shell's argv in /proc, $_ = the last word of the last command,
+#: BASH_EXECUTION_STRING): on such a line no text is only data (defence in depth: such a line also needs a command
+#: that runs code, which is never inert)
+_SELF_READ = re.compile(r"/proc\b|cmdline|\bBASH_[A-Z_]+|\$\{?[_0](?![A-Za-z0-9_])")
+
+
+def _subst(cmd: str, i: int) -> tuple[int, str]:
+    """The end and the code of the command substitution at i: `...` or $(...)."""
+    n = len(cmd)
+    if cmd[i] == "`":
+        j = i + 1
+        while j < n and cmd[j] != "`":
+            j += 2 if cmd[j] == "\\" else 1
+        if j >= n:
+            raise _Unclear
+        return j + 1, cmd[i + 1:j]
+    if cmd.startswith("$((", i):
+        raise _Unclear
+    depth, j = 1, i + 2
+    while j < n:
+        c = cmd[j]
+        if c in "#`" or cmd.startswith("<<", j) or re.match(r"\bcase\b", cmd[j:j + 5]):
+            raise _Unclear                                  # a comment, heredoc or case pattern could hide its end
+        if c == "'":
+            j = cmd.find("'", j + 1)
+            if j < 0:
+                raise _Unclear
+        elif c == '"':
+            j += 1
+            while j < n and cmd[j] != '"':
+                j += 2 if cmd[j] == "\\" else 1
+            if j >= n:
+                raise _Unclear
+        elif c == "\\":
+            j += 1
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return j + 1, cmd[i + 2:j]
+        j += 1
+    raise _Unclear
+
+
+_PARAM = re.compile(r"\$(\{[#!]?([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])\}|[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?$!-]|"
+                    r"(?=[\s\"/:.,=]|$))")
+
+
+def _param(cmd: str, i: int) -> int:
+    """The end of the parameter expansion at i: $name, ${name}, $1, $@ (or a lone $). A ${...} with an operator
+    inside (${x:-a b}, ${x/)/}), $'...' or $[...] could hold quotes, spaces or code the reader does not follow."""
+    m = _PARAM.match(cmd, i)
+    if not m:
+        raise _Unclear
+    return m.end()
+
+
+def _word(cmd: str, i: int) -> tuple[dict, int]:
+    """The shell word at i: its span, its value (quotes removed), whether the value is literal (nothing the shell
+    expands: no $, glob, brace or substitution), and the code of its substitutions."""
+    n, start, out, literal, subst, quoted = len(cmd), i, [], True, [], False
+    tilde = cmd.startswith("~", i)
+    while i < n:
+        c = cmd[i]
+        if c in " \t\n;&|()<>":
+            break
+        if c == "'":
+            j = cmd.find("'", i + 1)
+            if j < 0:
+                raise _Unclear
+            out.append(cmd[i + 1:j])
+            i, quoted = j + 1, True
+        elif c == '"':
+            i, quoted = i + 1, True
+            while True:
+                if i >= n:
+                    raise _Unclear
+                c = cmd[i]
+                if c == '"':
+                    i += 1
+                    break
+                if c == "\\" and i + 1 < n:
+                    out.append("" if cmd[i + 1] == "\n" else cmd[i + 1] if cmd[i + 1] in '$`"\\' else cmd[i:i + 2])
+                    i += 2
+                elif c == "`" or cmd.startswith("$(", i):
+                    j, code = _subst(cmd, i)
+                    subst.append(code)
+                    out.append(cmd[i:j])
+                    i, literal = j, False
+                elif c == "$":
+                    j = _param(cmd, i)
+                    out.append(cmd[i:j])
+                    i, literal = j, False
+                else:
+                    out.append(c)
+                    i += 1
+        elif c == "\\":
+            if i + 1 >= n:
+                raise _Unclear
+            out.append("" if cmd[i + 1] == "\n" else cmd[i + 1])
+            i += 2
+        elif c == "`" or cmd.startswith("$(", i):
+            j, code = _subst(cmd, i)
+            subst.append(code)
+            out.append(cmd[i:j])
+            i, literal = j, False
+        elif c == "$":
+            j = _param(cmd, i)
+            out.append(cmd[i:j])
+            i, literal = j, False
+        else:
+            if c in "$*?[{" or (c == "~" and i > start):
+                literal = False
+            out.append(c)
+            i += 1
+    if i == start:
+        raise _Unclear
+    return {"start": start, "end": i, "raw": cmd[start:i], "value": "".join(out), "literal": literal,
+            "subst": subst, "quoted": quoted, "tilde": tilde}, i
+
+
+def _parse(cmd: str) -> list[dict]:
+    """The simple commands of a shell line, in order: each with its words, redirections (op, target word), heredocs
+    (delimiter quoted or not, body span) and here-strings, and the operators before and after it (`|`, `&&`, `;`,
+    a newline, ...). Raises _Unclear on what it does not follow: subshells and function bodies `( )`, `$((`, `$'`,
+    `<(`, a case `;;`, an unclosed quote or a heredoc without its delimiter."""
+    n, i, cmds, pending = len(cmd), 0, [], []
+
+    def fresh(prev):
+        return {"words": [], "redirs": [], "heredocs": [], "herestrings": [], "prev": prev, "sep": ""}
+
+    cur = fresh("")
+
+    def close(sep):
+        nonlocal cur
+        if cur["words"] or cur["redirs"] or cur["heredocs"] or cur["herestrings"]:
+            cur["sep"] = sep
+            cmds.append(cur)
+            cur = fresh(sep)
+        elif sep in ("|", "&&", "||") or (sep in (";", "&") and cur["prev"] in ("|", "&&", "||")):
+            raise _Unclear
+
+    while i < n:
+        c = cmd[i]
+        if c in " \t":
+            i += 1
+        elif c == "\\" and cmd.startswith("\\\n", i):
+            i += 2
+        elif c == "\n":
+            close("\n") if cur["prev"] not in ("|", "&&", "||") or cur["words"] else None
+            i += 1
+            for h in pending:                                   # the heredoc bodies follow the line, in order
+                body = i
+                while True:
+                    if i > n or (i == n and body != n):
+                        raise _Unclear
+                    j = cmd.find("\n", i)
+                    end = n if j < 0 else j
+                    line = cmd[i:end]
+                    if (line.lstrip("\t") if h["strip"] else line) == h["delim"]:
+                        h["body"] = (body, i)
+                        i = end + 1
+                        break
+                    if j < 0:
+                        raise _Unclear
+                    i = end + 1
+            pending = []
+        elif c == "#":
+            j = cmd.find("\n", i)
+            i = n if j < 0 else j
+        elif cmd.startswith(";;", i) or c in "()":
+            raise _Unclear
+        elif cmd.startswith(("&&", "||"), i):
+            close(cmd[i:i + 2])
+            i += 2
+        elif cmd.startswith("|&", i):
+            close("|")
+            i += 2
+        elif (m := _REDIR_OP.match(cmd, i)) and (m.group(1) or c in "<>&"):
+            op = m.group(1) + m.group(2)
+            i = m.end()
+            if i < n and cmd[i] == "(":
+                raise _Unclear                                  # <( ) and >( ): a process substitution
+            while i < n and cmd[i] in " \t":
+                i += 1
+            w, i = _word(cmd, i)
+            if m.group(2) in ("<<", "<<-"):
+                if w["subst"]:
+                    raise _Unclear
+                h = {"delim": w["value"], "quoted": w["quoted"] or "\\" in w["raw"], "strip": m.group(2) == "<<-",
+                     "body": None}
+                pending.append(h)
+                cur["heredocs"].append(h)
+            elif m.group(2) == "<<<":
+                cur["herestrings"].append(w)
+            else:
+                cur["redirs"].append((op, w))
+        elif c in "|;&":
+            close(c)
+            i += 1
+        else:
+            w, i = _word(cmd, i)
+            cur["words"].append(w)
+    if pending:
+        raise _Unclear
+    close("")
+    if cur["prev"] in ("|", "&&", "||"):
+        raise _Unclear
+    for c in cmds:
+        k = 0
+        while k < len(c["words"]) and _NAME_ASSIGN.match(c["words"][k]["raw"]):
+            k += 1
+        c["assigns"], c["argv"] = c["words"][:k], c["words"][k:]
+        for h in c["heredocs"]:
+            h["text"] = cmd[h["body"][0]:h["body"][1]]
+            h["literal"] = h["quoted"] or not re.search(r"[$`\\]", h["text"])
+    return cmds
+
+
+def _program(c: dict) -> tuple[str, list[dict]]:
+    """The program a simple command runs (its basename, after wrappers like env, sudo, timeout, xargs) and its
+    arguments; "" when it is a variable or substitution the reader cannot name."""
+    argv = list(c["argv"])
+    while argv:
+        w = argv[0]
+        name = os.path.basename(w["value"]) if w["literal"] else ""
+        if name not in _RUNS_NEXT:
+            return name, argv[1:]
+        argv = argv[1:]
+        while argv and (argv[0]["value"].startswith("-") or _NAME_ASSIGN.match(argv[0]["raw"]) or
+                        argv[0]["value"].replace(".", "").isdigit()):
+            argv = argv[1:]
+    return "", []
+
+
+def _openlab_args(c: dict) -> Optional[list[dict]]:
+    """The arguments of an openlab invocation (`openlab ...`, `python -m openlab ...`, behind wrappers), or None."""
+    name, args = _program(c)
+    if name == "openlab":
+        return args
+    if re.fullmatch(r"python[0-9.]*", name or "-"):
+        for k, w in enumerate(args):
+            if w["value"] == "-m" and k + 1 < len(args):
+                return args[k + 2:] if args[k + 1]["value"] in ("openlab", "openlab.__main__") else None
+            if not w["value"].startswith("-"):
+                return None
+    return None
+
+
+def _helps(c: dict) -> bool:
+    """Whether this is `openlab GROUP ... --help` (or -h) of a group whose parser prints the usage and exits before any
+    handler runs: plain openlab (no launcher, no assignments in front), every word before the help literal, and the
+    help before any `--` (after it, a word is an argument, e.g. the remote command of person act)."""
+    argv = c["argv"]
+    if c["assigns"] or len(argv) < 3 or argv[0]["raw"] != "openlab" or argv[1]["value"] not in _HELP_GROUPS:
+        return False
+    for w in argv[1:]:
+        if not w["literal"] or w["value"] == "--":
+            return False
+        if w["value"] in ("--help", "-h"):
+            return True
+    return False
+
+
+def _grep_patterns(c: dict) -> list[dict]:
+    """The search patterns of a grep/egrep/fgrep/rg command (never run, never opened): the -e/--regexp words, else the
+    first operand. Only literal words that name no protected path; none when the command runs a preprocessor."""
+    argv = c["argv"]
+    if c["assigns"] or not argv or not argv[0]["literal"] or argv[0]["value"] not in _GREP_SHORT_ARG:
+        return []
+    short = _GREP_SHORT_ARG[argv[0]["value"]]
+    pats, operands, by_option, k, ended = [], [], False, 1, False
+    while k < len(argv):
+        w = argv[k]
+        v = w["value"]
+        if not w["literal"] and not (pats or operands):
+            return []                                       # a variable could be an option, or a -e
+        if ended or not v.startswith("-") or v == "-":
+            operands.append(w)
+        elif v == "--":
+            ended = True
+        elif v.startswith("--"):
+            name, eq, _ = v.partition("=")
+            if name.startswith("--pre") and name != "--pre-glob":
+                return []                                   # rg --pre runs a program
+            by_option = by_option or name in ("--regexp", "--file")
+            if name in _GREP_LONG_ARG and not eq:
+                if name == "--regexp" and k + 1 < len(argv):
+                    pats.append(argv[k + 1])
+                k += 1
+        else:
+            for x, ch in enumerate(v[1:]):
+                if ch in short:
+                    by_option = by_option or ch in "ef"
+                    if x == len(v) - 2:                     # the value is the next word
+                        if ch == "e" and k + 1 < len(argv):
+                            pats.append(argv[k + 1])
+                        k += 1
+                    break
+        k += 1
+    pats = pats if by_option else operands[:1]
+    return [w for w in pats if w["literal"] and not (OPENLAB_DIR.search(w["value"]) or PERSON_FILES.search(w["value"])
+                                                      or KEY_FILES.search(w["value"]))]
+
+
+def _file_sink(c: dict) -> Optional[str]:
+    """The file a `cat <<EOF`, `echo` or `printf` writes its text to, when that file is its only sink: one `>` or
+    `>>` to a literal path (not a device), not in a pipe, no assignments in front; else None."""
+    argv = c["argv"]
+    if c["assigns"] or not argv or argv[0]["raw"] not in ("cat", "echo", "printf") or "|" in (c["prev"], c["sep"]):
+        return None
+    if c["herestrings"] or (argv[0]["raw"] == "cat") != (len(c["heredocs"]) == 1 and len(argv) == 1) or \
+            (argv[0]["raw"] != "cat" and c["heredocs"]):
+        return None
+    outs = [w for op, w in c["redirs"] if op in (">", ">>", ">|", "1>", "1>>", "1>|")]
+    rest = [(op, w) for op, w in c["redirs"] if op not in (">", ">>", ">|", "1>", "1>>", "1>|")]
+    if len(outs) != 1 or any(not (op in ("2>", "2>>") and w["value"] == "/dev/null" or op == "2>&" and
+                                  w["value"] == "1") for op, w in rest):
+        return None
+    w = outs[0]
+    if not w["literal"] or w["value"].startswith(("/dev/", "/proc/")) or w["value"] in ("-", ""):
+        return None
+    if not all(x["literal"] for x in argv[1:]) or (c["heredocs"] and not c["heredocs"][0]["literal"]):
+        return None
+    return os.path.expanduser(w["value"]) if w["tilde"] else w["value"]
+
+
+def _inert_beside(cmds: list[dict], c: dict, inert: frozenset) -> bool:
+    """Whether every other command on the line is one of `inert` (none runs code, so none can run the data, or the
+    file it was written to), named literally, without assignments or substitutions; and `c` has no substitution."""
+    return not any(w["subst"] for w in c["words"] + [w for _, w in c["redirs"]] + c["herestrings"]) and all(
+        not o["assigns"] and not any(w["subst"] for w in o["words"] + [w for _, w in o["redirs"]] + o["herestrings"])
+        and (o["argv"][0]["literal"] and o["argv"][0]["raw"] in inert if o["argv"] else bool(o["redirs"]))
+        for o in cmds if o is not c)
+
+
+def _data_spans(cmd: str, cmds: list[dict]) -> list[tuple[int, int]]:
+    """The spans of the line that are only data: a grep pattern, an openlab command's free-text value or its words
+    when it only prints its help, and the text of a heredoc/echo whose only sink is a file outside .openlab/ that the
+    edit gate would let an agent write and that nothing on the line runs (every other command is inert). A grep's or
+    openlab's output (which may echo the text) goes only to the screen, /dev/null or an inert pipe. Nothing is data
+    on a line that changes how the shell resolves a command (PATH or another assignment alone, alias, a function,
+    source, hash, shopt, export ...)."""
+    spans = []
+    if _SELF_READ.search(cmd) or any((c["assigns"] and not c["argv"]) or
+                                     (c["argv"] and c["argv"][0]["value"] in _SHELL_STATE) for c in cmds):
+        return spans
+    for c in cmds:
+        argv = c["argv"]
+        quiet = all(w["value"] in ("1", "2", "-") if op.endswith("&") else w["value"] == "/dev/null" or ">" not in op
+                    for op, w in c["redirs"]) and _inert_beside(cmds, c, _INERT | {"openlab"})
+        if quiet:
+            spans += [(w["start"], w["end"]) for w in _grep_patterns(c)]
+        if _helps(c):
+            spans += [(w["start"], w["end"]) for w in argv[1:]] if quiet else []
+            continue
+        if quiet and argv and argv[0]["raw"] == "openlab" and len(argv) > 1 and argv[1]["value"] in _TEXT_GROUPS:
+            for j, w in enumerate(argv[2:], 2):
+                if w["value"] == "--" or not w["literal"]:
+                    break
+                v = argv[j + 1] if j + 1 < len(argv) else None
+                if w["value"] in _TEXT_OPTS and v and v["literal"] and not v["value"].startswith("-") and \
+                        not _BARE.match(v["value"]):
+                    spans.append((v["start"], v["end"]))
+        path = _file_sink(c)
+        if path is None or not _inert_beside(cmds, c, _INERT) or \
+                any(o["heredocs"] and _file_sink(o) is None for o in cmds if o is not c):
+            continue
+        if any(rx.search(path) or rx.search(" " + path) for rx in (OPENLAB_DIR, PERSON_FILES, KEY_FILES)):
+            continue
+        if c["heredocs"]:
+            h = c["heredocs"][0]
+            text, these = h["text"], [(h["body"][0], max(h["body"][0], h["body"][1] - 1))]
+        else:
+            text, these = " ".join(w["value"] for w in argv[1:]), [(w["start"], w["end"]) for w in argv[1:]]
+        if guard("Write", {"file_path": path, "content": text}) is None:
+            spans += these
+    return spans
+
+
+def _scrub(cmd: str, spans: list[tuple[int, int]]) -> str:
+    """The line with each data span written as `_`."""
+    for a, b in sorted(set(spans), reverse=True):
+        cmd = cmd[:a] + "_" + cmd[b:]
+    return cmd
+
+
+def _payloads(cmds: list[dict]) -> list[str]:
+    """The code a line hands to a shell: sh -c CODE, eval WORDS, a substitution's code, a heredoc or here-string fed
+    to a shell, echo/printf piped into a shell. Each is read again as a line of its own."""
+    out = []
+    for k, c in enumerate(cmds):
+        out += [code for w in c["words"] + [w for _, w in c["redirs"]] + c["herestrings"] for code in w["subst"]]
+        name, args = _program(c)
+        if name == "eval":
+            out.append(" ".join(w["value"] for w in args))
+        if name not in _SHELLS:
+            continue
+        flags = [w["value"] for w in args if w["value"].startswith("-") and not w["value"].startswith("--")]
+        if any("c" in f[1:] for f in flags):
+            code = next((w for w in args if not w["value"].startswith("-")), None)
+            if code:
+                out.append(code["value"])
+            continue
+        out += [h["text"] for h in c["heredocs"]] + [w["value"] for w in c["herestrings"]]
+        if c["prev"] == "|" and k and cmds[k - 1]["argv"] and cmds[k - 1]["argv"][0]["value"] in ("echo", "printf"):
+            out.append(" ".join(w["value"] for w in cmds[k - 1]["argv"][1:]))
+    return out
+
+
+def _openlab_act(cmds: list[dict]) -> Optional[str]:
+    """The person verb an openlab invocation runs, read from its words: the group and verb are its first two operands
+    (past options like --root and their values), so `openlab inbox --root . approve` is read too; a group or verb the
+    shell supplies (`$v`, `$(...)`) cannot be read and is refused as one. A --help that exits first is no act."""
+    for c in cmds:
+        args = _openlab_args(c)
+        if args is None or _helps(c):
+            continue
+        ops, flags, skip = [], set(), False
+        for w in args:
+            if w["value"] == "--" and w["literal"]:
+                break
+            if skip:
+                skip = False
+                continue
+            if w["literal"] and w["value"].startswith("-"):
+                flags.add(w["value"].partition("=")[0])
+                skip = w["value"] in _OPENLAB_VALUE_OPTS
+                continue
+            ops.append(w)
+            if len(ops) == 2:
+                break
+        if any(not w["literal"] for w in ops):
+            return "a group or verb the shell fills in (a variable or a substitution), which may be a person's act"
+        text = " ".join(w["value"] for w in ops) + (" --person" if "--person" in flags else "")
+        for rx, what in PERSON_VERBS:
+            if rx.search(text):
+                return what
+    return None
+
+
 ASK = "file openlab_agent_request(kind, study, args, reason) with the exact act, and carry on with other work"
 RECORD = ("the .openlab/ folders are openlab's record and control store; nothing writes into them but openlab",
           "let openlab write it: its tools and CLI keep the record (study_run, study_amend, openlab study ...)")
@@ -355,18 +835,28 @@ def _script_runs_verb(tool: str, inp: dict, path: str, text: str) -> Optional[st
     return None
 
 
-def guard(tool: str, inp: dict) -> Optional[tuple[str, str, str]]:
+def guard(tool: str, inp: dict, _depth: int = 0) -> Optional[tuple[str, str, str]]:
     """What this call is refused as, or None: (kind, why, fix), kind `bypass` (a person's act, or a write into
     what only openlab or the person writes) or `read` (a read of a .openlab/ folder: refused, but nothing could be
     written). Pure: decided from the call alone, before anything can fail."""
     inp = inp if isinstance(inp, dict) else {}
     if tool == "Bash":
         cmd = str(inp.get("command") or "")
+        act, programs, payloads = None, [], []
+        try:                                    # what the line only carries as data is blanked; the rest reads as before
+            cmds = _parse(cmd)
+            act, programs = _openlab_act(cmds), [_program(c)[0] for c in cmds]
+            payloads = _payloads(cmds) if _depth < 4 else []
+            cmd = _scrub(cmd, _data_spans(cmd, cmds))
+        except Exception:                       # noqa: BLE001 -- _Unclear, or a shape the reader trips on: read whole
+            pass
         cmd = cmd + "\n" + re.sub(r"['\"]|\\(?=[A-Za-z])", "", cmd)     # also as written without quote splicing
         for rx, what in PERSON_VERBS:
             if rx.search(cmd):
                 return "bypass", f"{what} is a person's act; an agent cannot run it, in any wrapper", ASK
-        pty = [w for w in _command_words(cmd) if w in PTY_WORDS]
+        if act:
+            return "bypass", f"{act} is a person's act; an agent cannot run it, in any wrapper", ASK
+        pty = [w for w in _command_words(cmd) + programs if w in PTY_WORDS]
         if pty or PTY_TEXT.search(cmd):
             return ("bypass", f"{(pty or ['a pty'])[0]} fakes an interactive terminal, which openlab's person gates "
                     "read as a person; it is refused to agents", "run the command plainly; for a person's act, " + ASK)
@@ -387,6 +877,10 @@ def guard(tool: str, inp: dict) -> Optional[tuple[str, str, str]]:
         if _writes_into(cmd, PERSON_FILES):
             return ("bypass", "openlab.toml, LAWS.openlab, HOOKS.openlab, .mcp.json, .claude/settings*, .claude/agents/ "
                     "and ~/.config/openlab/ are changed by a person only", PERSON_EDIT)
+        for code in payloads:                   # the code a line hands to a shell reads as a line too
+            g = guard("Bash", {"command": code}, _depth + 1)
+            if g and g[0] == "bypass":
+                return g
         if _reads_from(cmd, OPENLAB_DIR):
             return ("read",) + RECORD_READ
         return None

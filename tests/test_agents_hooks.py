@@ -576,3 +576,138 @@ def test_a_workspace_denies_what_its_deny_patterns_match(ws):
     st = Store(ws)
     a = st.by_session(SID)
     assert sum(1 for e in st.events(a["id"], kinds=("refusal",)) if "[agents] deny" in e["summary"]) == 2
+
+
+# --- B4, B6, B7: a person verb, a tool name, an OPENLAB_* name or .openlab/ that a command only carries as data ------
+# The verbs are spelled in pieces so this file is not itself read as a script that runs them (the edit gate reads text).
+V_HOLD, V_AMEND, V_SCREEN, V_APPROVE = "study " + "holdout", "study " + "amend", "study " + "screen", "study " + "approve"
+V_DECIDE, V_ANSWER, V_RESUME, V_RELEASE = "inbox " + "approve", "inbox " + "answer", "agent " + "resume", "study " + "release"
+V_PIN, V_INIT, V_ROTATE, V_ACT, V_REG = "person " + "pin", "person " + "init", "person " + "rotate", "person " + "act", \
+    "instrument " + "register"
+V_PERSON_TRUE = "person" + "=True"
+
+
+@pytest.mark.parametrize("cmd", [
+    # B4: a verb inside a quoted search pattern; a heredoc or echo whose only sink is a file outside .openlab/
+    f'grep -n "{V_DECIDE}" openlab/agents/hooks.py',
+    f"rg -n '{V_PIN}|{V_HOLD}' docs/ | head -20",
+    f'grep -rn -e "{V_RESUME}" -e "{V_ANSWER}" --include=*.md docs',
+    f'grep -c -- "{V_HOLD}" notes.md && echo found',
+    f"cat > notes.md <<'EOF'\n# Notes\na signed person act: openlab {V_DECIDE} 3 --reason ok\n| {V_PIN} | doctor row |\nEOF",
+    f"cat >> BUGS.md <<'EOF'\n## B9 · openlab · `openlab {V_REG} --help` refused\n- seen: x\nEOF",
+    "cat > docs/instruments.md <<'EOF'\nEach version is kept under .openlab/instruments/ in the workspace.\nEOF",
+    f"mkdir -p docs && cat > docs/x.md <<'EOF'\nopenlab {V_HOLD} demo is the person's\nEOF\nwc -l docs/x.md",
+    f'echo "ask the person to run openlab {V_HOLD} demo" > notes.txt',
+    f"cat > ~/notes/today.md << \"EOF\"\n{V_PIN} and {V_ROTATE} are the person's\nEOF",
+    # B6: --help of a person verb runs no act; a .py file's text naming OPENLAB_* variables is no changed environment
+    f"openlab {V_REG} --help", f"openlab {V_REG} -h", f"openlab {V_HOLD} --help", f"openlab {V_AMEND} demo --person --help",
+    f"openlab {V_SCREEN} lit -h", f"openlab {V_APPROVE} --help", f"openlab {V_RELEASE} --help", f"openlab {V_DECIDE} --help",
+    f"openlab inbox deny -h", f"openlab {V_ANSWER} --help", f"openlab {V_RESUME} --help", f"openlab {V_INIT} --help",
+    f"openlab {V_PIN} -h", f"openlab {V_ROTATE} --help", f"openlab {V_ACT} --help", f"cd /w && openlab {V_REG} --help | head -40",
+    "cat > tests/test_cli.py <<'EOF'\nimport os\nimport openlab\n\ndef test_out(monkeypatch, tmp_path):\n"
+    "    monkeypatch.setenv(\"OPENLAB_INSTRUMENT_CONFIG\", str(tmp_path))\n"
+    "    assert os.environ.get(\"OPENLAB_INSTRUMENT_OUT\") is None\nEOF",
+    # B7: the pty tool's name inside a quoted argument of an openlab command
+    'openlab instrument run tender --study studies/tender --reason "first scan of the forward trial (empty state, '
+    '3-day backfill)" -- scan',
+    "openlab study run demo --note 'empty (x); script and expect are words here'",
+])
+def test_a_command_that_only_carries_the_words_as_data_passes(cmd):
+    assert hooks.guard("Bash", {"command": cmd}) is None, cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    # plain verbs and python -m
+    f"openlab {V_HOLD} demo --reason x", f"python -m openlab {V_HOLD} demo", f"python3 -m openlab {V_PIN}",
+    f"openlab {V_AMEND} demo --reason 'more data (empty)' --person",
+    # shells, eval, substitutions, env, xargs
+    f"bash -c 'openlab {V_HOLD} demo'", f'sh -c "openlab {V_DECIDE} 3 --reason x"', f'eval "openlab {V_HOLD} demo"',
+    f"x=$(openlab {V_HOLD} demo)", f"x=`openlab {V_HOLD} demo`", f'echo "$(openlab {V_HOLD} demo)" > notes.md',
+    f"env X=1 openlab {V_HOLD} demo", f'echo "{V_HOLD} demo" | xargs openlab', f"echo 'openlab {V_HOLD} demo' | sh",
+    # heredocs and here-strings fed to an interpreter
+    f"bash <<EOF\nopenlab {V_HOLD} demo\nEOF", f"bash <<'EOF'\nopenlab {V_PIN}\nEOF", f'bash <<< "openlab {V_HOLD} demo"',
+    f"python - <<'EOF'\nimport openlab\nopenlab.study.open('demo').hold" f"out('x', {V_PERSON_TRUE})\nEOF",
+    f"python -c 'import openlab; openlab.study.open(\"d\").hold" f"out(\"x\", {V_PERSON_TRUE})'",
+    # a file written, then run in the same command
+    f"cat > /tmp/x.txt <<'EOF'\nopenlab {V_HOLD} demo\nEOF\nsh /tmp/x.txt",
+    f"cat > x.md <<'EOF'\nopenlab {V_HOLD} demo\nEOF\nchmod +x x.md && ./x.md",
+    f"cat > a.txt <<'EOF'\nopenlab {V_HOLD} demo\nEOF\nbash *.txt",
+    f"f=a.txt; cat > $f <<'EOF'\nopenlab {V_HOLD} demo\nEOF\nbash $f",
+    f"cat > run.sh <<'EOF'\nopenlab {V_HOLD} demo\nEOF",
+    f"cat > notes.md <<'EOF' | sh\nopenlab {V_HOLD} demo\nEOF",
+    f"PATH=/tmp/e:$PATH; cat > notes.md <<'EOF'\nopenlab {V_HOLD} demo\nEOF",
+    f"cat > notes.md <<EOF\n$(openlab {V_HOLD} demo)\nEOF",
+    f"cat > /dev/stdout <<'EOF'\nopenlab {V_HOLD} demo\nEOF",
+    # variable indirection and quoting tricks
+    f"v=person; openlab $v pin", "openlab $(echo person) pin", f"openlab inbox --root . approve 3 --reason x",
+    f"open\"lab\" study 'hold''out' demo", "'openlab' 'study' 'holdout' demo", f"openlab study hold\\out demo",
+    # pty wrappers in command position, also inside a payload
+    "empty -f openlab study run x", "timeout 5 empty -f x", "bash -c 'empty -f openlab study run x'",
+    'sh -c "script -q /dev/null"', 'script -c "openlab study run x" /dev/null', "unbuffer openlab study run x",
+    # --help that cannot stop the act: after --, behind a variable, under another launcher, beside a real act
+    f"openlab {V_ACT} box -- {V_HOLD} demo --help", f"openlab {V_REG} x --entry y --reason r -- --help",
+    f"openlab {V_HOLD} $X --help", f"python -m openlab {V_HOLD} --help", f"openlab {V_HOLD} --help; openlab {V_HOLD} demo",
+    f"HOME=/tmp/h openlab {V_INIT} --help", f"openlab {V_HOLD} demo --help=x",
+    # a changed environment in front of openlab
+    "OPENLAB_X=1 openlab study run x", "export OPENLAB_X=1; openlab study run x", "XDG_CONFIG_HOME=/x openlab study run x",
+    # search patterns that are not only data
+    f'grep x f && openlab {V_DECIDE} 3 --reason y', f'grep "$(openlab {V_HOLD} demo)" f',
+    f'grep -e x "openlab {V_HOLD} demo" | sh', f'rg --pre "openlab {V_HOLD} demo" x .',
+    # heredocs into what openlab or the person writes
+    "cat > .claude/settings.json <<'EOF'\n{}\nEOF", "cat > demo/.openlab/x <<'EOF'\nx\nEOF",
+    "echo x > demo/.openlab/record.db",
+    # what the reader must not take for data: a line that changes how grep or cat resolve, text that reaches a
+    # shell or a file through the output, words the shell regroups (${x:- ...}, a substitution with a quoted paren)
+    f"shopt -s expand_aliases\nalias grep='sh -c'\ngrep \"openlab {V_DECIDE} 3 --reason x\"",
+    f'function grep {{ sh -c "$1"; }}; grep "openlab {V_DECIDE} 3 --reason x"',
+    f'PATH=/tmp/e:$PATH; grep "openlab {V_DECIDE} 3 --reason x" f', f'. ./defs.sh; grep "openlab {V_DECIDE} 3" f',
+    f'grep -o "openlab {V_DECIDE} 3 --reason x" notes.md | sh', f'grep -o "openlab {V_DECIDE} 3" notes.md > run.sh',
+    f'grep -o "openlab {V_DECIDE} 3" notes.md >& run.sh', f'openlab study run x --note "a\nopenlab {V_DECIDE} 3\n" | sh',
+    f"echo ${{x:- ; cat > f.md <<'EOF'}}\nopenlab {V_HOLD} demo\nEOF}}",
+    f"x=$(echo \")\"; cat > f.md <<'EOF'\nopenlab {V_HOLD} demo\nEOF\n)",
+    f"cat > f.md <<EOF\nE\\\nOF\nopenlab {V_HOLD} demo\nEOF",
+    f"set -e; cat > f.md <<'EOF'\nopenlab {V_HOLD} demo\nEOF\n. ./f.md",
+    f"eval 'grep() {{ sh -c \"$1\"; }}'; grep \"openlab {V_DECIDE} 3 --reason x\"",
+    # the line's own text read back: $_ (the last word of the last command), the shell's argv in /proc
+    f'grep -f f -e "openlab {V_DECIDE} 3 --reason x"; sh -c "$_"',
+    f'openlab study run x --note "openlab {V_DECIDE} 3 --reason x"; sh -c "$_"',
+    f'grep -c "openlab {V_DECIDE} 3" f; sed -n p /proc/$$/cmdline | cut -d\'"\' -f2 | sh',
+    f'exec > run.sh; grep -o "openlab {V_DECIDE} 3" notes.md',
+    f"grep -c \"openlab {V_DECIDE} 3\" f; sh -c \"$(sed -n p /pr''oc/$$/cmd''line | cut -d'\"' -f2)\"",
+    f"grep -c \"openlab {V_DECIDE} 3\" f; python3 x.py", f"openlab study run x --note 'openlab {V_DECIDE} 3'; bash x.md",
+])
+def test_the_same_words_in_command_position_stay_a_bypass(cmd):
+    g = hooks.guard("Bash", {"command": cmd})
+    assert g and g[0] == "bypass", cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "cat .openlab/record.db", "sqlite3 demo/.openlab/record.db 'select 1'", "grep -rn holdout demo/.openlab",
+    f'grep -n "{V_DECIDE}" demo/.openlab/hooks.log', "rg x -g '*.py' kref/.openlab",
+    "cat > notes.md <<'EOF'\nx\nEOF\ncat demo/.openlab/hooks.log",
+])
+def test_real_reads_of_the_record_are_still_refused(cmd):
+    g = hooks.guard("Bash", {"command": cmd})
+    assert g and g[0] in ("read", "bypass"), cmd
+    assert hooks.guard("Bash", {"command": "cp .openlab/record.db /tmp/r.db"})[0] == "bypass"
+
+
+@pytest.mark.parametrize("argv", [
+    ["instrument", "register", "--help"], ["instrument", "register", "x", "-h"], ["study", "holdout", "--help"],
+    ["study", "amend", "demo", "--person", "--help"], ["study", "screen", "-h"], ["study", "approve", "--help"],
+    ["study", "release", "--help"], ["inbox", "approve", "--help"], ["inbox", "deny", "-h"],
+    ["inbox", "answer", "--help"], ["agent", "resume", "--help"], ["person", "init", "--help"],
+    ["person", "pin", "-h"], ["person", "rotate", "--help"], ["person", "act", "box", "--help"],
+])
+def test_help_of_every_person_verb_exits_in_argparse_before_any_act(argv, tmp_path, monkeypatch, capsys):
+    """Why the guard lets `openlab <person verb> --help` through: argparse prints the usage and exits while parsing,
+    before any handler runs (nothing is written, nothing is asked)."""
+    from openlab import __main__ as cli
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        cli.main(argv)
+    assert e.value.code == 0 and "usage:" in capsys.readouterr().out
+    assert list(tmp_path.iterdir()) == []
+    assert hooks.guard("Bash", {"command": "openlab " + " ".join(argv)}) is None
