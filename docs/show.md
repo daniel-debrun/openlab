@@ -15,7 +15,7 @@ passphrase.
 | Burn | steps done against scope as the plan changes, and each agent's spend against its budget with when it runs out | the plans and the store |
 | RAID | issues (a step the record disagrees with, a repeated refusal, a silent agent), dependencies (what waits for you or the box), risks (an agent near its budget), assumptions (the record's hypotheses, which hold once a test of them rejects the null, and its assumptions, until a break shows one does not) | derived from the above |
 | Audit ledger | the studies' records, entry by entry, with **Verify chain** | each study's record |
-| Workspace | the research's files as a tree (hide it with ‹); the file you pick on the right: LaTeX and Markdown in an editor with their rendering beside it (shown or hidden), a PDF or an image as itself, other text read-only; comments on any file for the lead; a study folder's card (**Start the paper**, its PDF, its README); **Compile now** for the study you are in | `show_tree`, `show_open`, `show_save`, `show_comment` |
+| Workspace | the research's files as a tree (hide it with ‹); the file you pick on the right: LaTeX and Markdown in an editor with their rendering beside it (shown or hidden), a PDF or an image as itself, other text read-only; comments on any file for the lead; a study folder's card (**Start the paper**, its PDF, its README, **Sealed** or **Not sealed** with **Seal…**); **Compile now** for the study you are in | `show_tree`, `show_open`, `show_save`, `show_comment`, `show_snapshot` (`studies`), `show_study_seal` |
 | Machine queue | each machine openlab runs on, local or remote, with its CPU, memory, GPU and disk use, then this machine's queue | `/proc`, `nvidia-smi` (over ssh for a remote one), `openlab box queue` |
 | Settings | this research's settings with their defaults, changed in place; the remote machines | `openlab.toml`, `<home>/.openlab-show.json` |
 
@@ -170,6 +170,27 @@ lists the open comments with `agent_comments` (each with its path and the line i
 comment waits open for the next one. Comments live in `.openlab/comments.jsonl`, appended and never rewritten, each
 line's sha on the control store's chain. Saving and commenting are yours (the link's reviewer secret) but not
 signed: the prose and the comments are advice to the agents, not a person's act.
+
+## Sealing a study
+
+A study is **Not sealed** until its first research run. Until then its plan, `study.toml`, can still change
+without a trace. The page marks every unsealed study with an orange **Not sealed** badge: in the Workspace tree, on
+the research's folder (a list of them) and on the study's card. The card says in plain words what sealing is: it
+fixes the plan before any result is seen. It lists what the seal freezes, with this study's values: the split and
+holdout, the budget, the sandbox, the primary metric, the instrument pins and the other protected fields. It also
+says what the seal costs: trial 1 of the budget, with the holdout untouched. Afterwards an edit is an amendment, and
+a change to a protected field needs your signature.
+
+**Seal…** opens a confirm that names those consequences. Your passphrase signs it, and the server runs the study's
+first research run as your act (`show_study_seal`). This is the same path, with the same protections, as an inbox
+approval: the link's token and reviewer secret, then the passphrase. The dialog shows the result (the `plan` node,
+`trial 1 of N`, the result id and the primary metric with its interval) or the refusal. A study already sealed or
+whose data is not materialised is refused before anything runs; the card then says why and what to run first
+(`openlab study materialise STUDY`). `openlab study seal STUDY` does the same in a terminal.
+
+An experiment card in the Experiments tab, and an inbox item of kind `experiment`, whose study is not sealed carry a
+line saying so, with a **Seal** button. `openlab experiment status`, `list`, the `experiment_request` reply and the
+preview the person signs at the start say it too.
 
 ## Questions
 

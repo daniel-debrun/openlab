@@ -119,6 +119,8 @@ def _text_status(o: dict) -> list:
     lines = [f"{o['name']} ({o['study']}): {o['state'].upper()}" + ("  [spec file edited after start: not run]"
                                                                      if o.get("edited") else ""),
              f"  purpose: {o['purpose']}"]
+    if (o.get("study_seal") or {}).get("line"):
+        lines.append(f"  {o['study_seal']['line']}")
     if o.get("spec_error"):
         lines.append(f"  spec: {o['spec_error']}")
     if o["plan_step"]:
@@ -162,7 +164,9 @@ def _text_list(o: dict) -> list:
         p = x.get("progress") or {}
         out.append(f"{x['study']}/{x.get('name') or '?'}: {x['state']}"
                    + (f", {p.get('passes_ok', 0)}/{p.get('target') or '-'} passes" if p else "")
-                   + (f"  ({x['spec_error']})" if x.get("spec_error") else ""))
+                   + (f"  ({x['spec_error']})" if x.get("spec_error") else "")
+                   + ("  [study not sealed: openlab study seal " + x["study"] + "]"
+                      if (x.get("study_seal") or {}).get("line") else ""))
     return out
 
 
@@ -196,7 +200,8 @@ def _text_start(o: dict) -> list:
 
 
 TEXT = {"new": _text_new, "list": _text_list, "status": _text_status,
-        "request": lambda o: [f"{o['id']}: requested, inbox #{o['item']} (sha {o['sha'][:12]})", f"  {o['next']}"],
+        "request": lambda o: [f"{o['id']}: requested, inbox #{o['item']} (sha {o['sha'][:12]})", f"  {o['next']}",
+                              *([f"  note: {o['note']}"] if o.get("note") else [])],
         "start": _text_start,
         "kill": _text_kill,
         "job": lambda o: [json.dumps(o, default=str)],

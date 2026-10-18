@@ -14,7 +14,7 @@
   if (!token || location.protocol === "file:") { LAB.now = () => Date.now(); return; }
   const reviewer = q.get("r") || "", D = LAB.data;
   LAB.live = { token, reviewer, ws: q.get("w") || "" };
-  const empty = () => ({ live: true, sessions: [], people: [], plans: {}, feed: [], inbox: [], answered: [], queue: [], experiments: [], instruments: [],
+  const empty = () => ({ live: true, sessions: [], people: [], plans: {}, feed: [], inbox: [], answered: [], queue: [], experiments: [], instruments: [], studies: [],
     settings: [], docComments: [], agst: {}, ledger: [], ledgerHeads: [], spend: 0 });
   Object.assign(D, empty());
   let skew = 0;
@@ -108,6 +108,7 @@
     D.ledgerTotal = s.ledger.total;
     D.experiments = s.experiments || [];             // as experiment_status reads them (openlab.study.experiments.view)
     D.instruments = s.instruments || [];
+    D.studies = s.studies || [];                     // each study's seal (openlab.study.sealing.overview)
   }
 
   let loading = null, again = false;

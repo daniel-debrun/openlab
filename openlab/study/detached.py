@@ -120,9 +120,10 @@ def _prune(folder: Path) -> None:
         _remove(folder, job)
 
 
-def run(folder: Path, kwargs: dict, actor: str) -> dict:
+def run(folder: Path, kwargs: dict, actor: str, verb: str = "run") -> dict:
     """Run the study in a detached process and wait up to WAIT for its result (a StudyError when it refuses); a
-    run still going then is returned as its job, {running, job, pid, started, next}."""
+    run still going then is returned as its job, {running, job, pid, started, next}. `verb` seal: the first
+    research run on purpose (Study.seal_run)."""
     from .errors import StudyError
     folder = Path(folder).resolve()
     jobs = _jobs(folder)
@@ -130,7 +131,7 @@ def run(folder: Path, kwargs: dict, actor: str) -> dict:
     _prune(folder)
     job = f"run-{uuid.uuid4().hex[:12]}"
     spec, out, log, _ = _files(jobs, job)
-    meta = {"kwargs": kwargs, "actor": actor, "started": _now()}
+    meta = {"kwargs": kwargs, "actor": actor, "started": _now(), **({"verb": verb} if verb != "run" else {})}
     _write(spec, meta)
     with open(log, "ab") as f:
         proc = subprocess.Popen([sys.executable, "-m", "openlab.study.detached", str(folder), str(spec)],
@@ -262,7 +263,8 @@ def main(argv=None) -> int:
     from .errors import StudyError
     try:
         with acting_as(spec.get("actor") or ""):
-            data = {"result": study.open(folder).run(**spec["kwargs"])}
+            s = study.open(folder)
+            data = {"result": (s.seal_run if spec.get("verb") == "seal" else s.run)(**spec["kwargs"])}
     except StudyError as e:
         data = {"error": e.error, "meaning": e.meaning, "fix": e.fix}
     _write(job.with_suffix(".out"), data)

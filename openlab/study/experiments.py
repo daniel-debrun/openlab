@@ -557,6 +557,9 @@ def describe(root, study: str, name: str, spec_sha: str = "") -> tuple:
     text, sha = read_spec(folder, name)
     spec = parse(text, folder, name, ws)
     lines = preview(ws, folder, rel, spec, sha)
+    from .sealing import state, unsealed_line
+    if not state(folder)["sealed"]:
+        lines.append(unsealed_line(rel))
     if spec_sha and spec_sha != sha:
         lines.insert(0, f"the spec changed since it was requested (sha {spec_sha[:12]} -> {sha[:12]}): approving "
                         "is refused; the agent requests it again")
@@ -594,8 +597,10 @@ def request(root, study: str, name: str, reason: str) -> dict:
                                                                            "spec_sha": sha})
     node = rec.add("experiment", {"name": name, "sha": sha, "spec": spec, "file": f"{FOLDER}/{name}.toml",
                                   "requested_by": agent, "inbox": item, "reason": reason.strip()}, actor="agent")
+    from .sealing import state, unsealed_line
     return {"id": node.id, "item": item, "state": "requested", "sha": sha,
-            "next": f"the person starts it: approving inbox #{item}, or `openlab experiment start {rel} {name}`"}
+            "next": f"the person starts it: approving inbox #{item}, or `openlab experiment start {rel} {name}`",
+            **({} if state(folder)["sealed"] else {"note": unsealed_line(rel)})}
 
 
 def _step(ws: Path, owner: str, step: str, state: str, links: list, note: str) -> str:
@@ -966,6 +971,9 @@ def view(ws: Path, folder: Path, rel: str, name: str, rec=None, store=None, at: 
     rec = rec if rec is not None else _record(folder, create=False)
     t = at or _now()
     out: dict = {"study": rel, "name": name, "file": f"{FOLDER}/{name}.toml"}
+    from .sealing import state, unsealed_line
+    seal = state(folder)
+    out["study_seal"] = {**seal, **({} if seal["sealed"] else {"line": unsealed_line(rel)})}
     sha, spec, err = "", None, ""
     try:
         text, sha = read_spec(folder, name)

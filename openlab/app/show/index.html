@@ -393,6 +393,17 @@
   #prHint{font-size:11.5px;color:var(--mute);margin:6px 16px 10px}
   dialog#pp{border:1px solid var(--line2);border-radius:12px;padding:0;width:400px;box-shadow:0 24px 70px rgba(20,25,40,.25);color:var(--ink)}
   dialog#pp::backdrop{background:rgba(20,25,35,.28)}
+  /* the seal: a study's plan frozen by its first research run */
+  .nseal{display:inline-block;font-size:10.5px;font-weight:700;color:#8a3b00;background:#ffe9d6;border:1px solid #f2b88a;border-radius:5px;padding:0 6px;vertical-align:1px}
+  .yseal{display:inline-block;font-size:10.5px;font-weight:700;color:#0a6e0a;background:#effaef;border:1px solid #a8dca8;border-radius:5px;padding:0 6px;vertical-align:1px}
+  .sealbox{margin-top:10px;border:1px solid #f2b88a;background:#fff7f0;border-radius:9px;padding:10px 13px;font-size:12.5px;color:#4a2a10}
+  .sealbox p{margin:4px 0}.sealbox ul{margin:4px 0 6px 18px;padding:0}.sealbox li{margin:1px 0}
+  .sealbox .row2{display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  .sealline{margin-top:10px;font-size:12.5px;background:#fff7f0;border:1px solid #f2b88a;border-radius:8px;padding:7px 11px;color:#4a2a10;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  dialog#sl{border:1px solid var(--line2);border-radius:12px;padding:0;width:min(600px,94vw);box-shadow:0 24px 70px rgba(20,25,40,.25);color:var(--ink)}
+  dialog#sl::backdrop{background:rgba(20,25,35,.28)}
+  #slBody{padding:10px 16px 2px;font-size:12.5px;max-height:60vh;overflow:auto}#slBody ul{margin:4px 0 8px 18px;padding:0}#slBody li{margin:2px 0}
+  #slOut .ok{margin:8px 0;background:#effaef;border:1px solid #a8dca8;border-radius:6px;padding:7px 10px;color:#0a5e0a}
   .form .chk{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--ink2);margin-top:10px}
   .form .chk input{width:auto;margin-top:2px}
 
@@ -753,6 +764,12 @@
 <dialog id="pp"><div class="pal-in"><span class="crumbp">Resume</span><b id="ppT" style="font-weight:600"></b></div>
   <div class="form" style="padding:4px 16px 12px"><label for="ppP">Your passphrase signs the resume</label><input id="ppP" type="password" autocomplete="current-password"></div>
   <div class="pal-f"><span class="sp"></span><button class="b" id="ppX">Cancel</button><button class="b pri" id="ppOk">Resume</button></div></dialog>
+<dialog id="sl"><div class="pal-in"><span class="crumbp">Seal</span><b id="slT" style="font-weight:600"></b></div>
+  <div id="slBody"></div>
+  <div class="form" id="slForm" style="padding:0 16px 12px"><label for="slN">Note (optional)</label><input id="slN" placeholder="e.g. the plan as agreed with the lead" autocomplete="off">
+    <label for="slP">Your passphrase signs the seal</label><input id="slP" type="password" autocomplete="current-password"></div>
+  <div id="slOut" style="padding:0 16px"></div>
+  <div class="pal-f"><span id="slF"></span><span class="sp"></span><button class="b" id="slX">Cancel</button><button class="b pri" id="slOk">Sign and seal</button></div></dialog>
 <dialog id="cv"><div class="pal-in"><span class="crumbp">Conversation</span><b id="cvT" style="font-weight:600"></b><span class="sp" style="flex:1"></span><span id="cvS" style="font-size:11.5px;color:var(--mute)"></span></div>
   <div id="cvBody"></div>
   <div class="pal-f"><span id="cvF"></span><span class="sp"></span><button class="b" id="cvAll" style="display:none">Whole conversation</button><button class="b" id="cvX">Close</button></div></dialog>
@@ -1669,7 +1686,7 @@
     return d.entries.map((e) => { const open = e.dir && wsExpanded.has(e.path);
       return `<div class="wt-row${e.path === wsSel ? " on" : ""}${e.virtual ? " virt" : ""}" data-wpath="${esc(e.path)}" data-wdir="${esc(e.dir ? 1 : "")}" ${pad(depth)} title="${esc(e.path + (e.virtual ? " · not written yet: opens as the README the last compile wrote" : e.link ? " · a link" : ""))}">`
         + `<span class="wt-car">${e.dir ? (open ? "▾" : "▸") : ""}</span>${e.dir ? "" : `<span class="wt-ic k-${esc(e.kind)}">${esc(KICON[e.kind] || "")}</span>`}<span class="wt-n">${esc(e.name)}</span>`
-        + `${wsEdits[e.path] != null ? `<span class="wt-dot" title="unsaved changes">●</span>` : ""}${e.study ? `<span class="wt-tag">study</span>` : ""}${e.comments ? `<span class="ct" title="open comments">${esc(e.comments)}</span>` : ""}</div>${open ? treeRows(e.path, depth + 1) : ""}`; }).join("")
+        + `${wsEdits[e.path] != null ? `<span class="wt-dot" title="unsaved changes">●</span>` : ""}${e.study ? `<span class="wt-tag">study</span>${unsealed(e.path) ? ` <span class="nseal" title="not sealed: its first research run freezes study.toml">not sealed</span>` : ""}` : ""}${e.comments ? `<span class="ct" title="open comments">${esc(e.comments)}</span>` : ""}</div>${open ? treeRows(e.path, depth + 1) : ""}`; }).join("")
       + (d.more ? `<div class="wt-row wt-load" ${pad(depth + 1)}>${esc(d.more)} more not listed</div>` : "");
   }
   function drawTree() {
@@ -1687,12 +1704,21 @@
   function drawFolder() {
     const m = $("#wMain"), d = wsDirs[wsSel]; m.dataset.path = "";
     const study = d && d.study === wsSel ? wsSel : null, st = study && (paperData || []).find((x) => x.study === study), r = st && st.release;
-    const card = !study ? "" : `<div class="card2"><h3>Study ${esc(study)}</h3><p class="sub">${esc(st ? folderWhat(st) : "")}${r ? ` · compiled ${esc(r.at.replace("T", " ").slice(0, 16))}` : ""}. <b>Compile now</b> (top right) builds its paper and code folder into ${esc(study)}/release/.</p>
+    const sl = study && studyOf(study), seal = !sl || sl.mode === "review" ? "" : sl.sealed
+      ? ` <span class="yseal" title="sealed ${esc((sl.at || "").replace("T", " ").slice(0, 16))} by ${esc(sl.by)} (${esc(sl.plan)}): study.toml is frozen; an edit is an amendment">Sealed</span>`
+      : ` <span class="nseal">Not sealed</span>`;
+    const card = !study ? sealsAll() : `<div class="card2"><h3>Study ${esc(study)}${seal}</h3><p class="sub">${esc(st ? folderWhat(st) : "")}${r ? ` · compiled ${esc(r.at.replace("T", " ").slice(0, 16))}` : ""}. <b>Compile now</b> (top right) builds its paper and code folder into ${esc(study)}/release/.</p>
       <div class="wquick">${st && st.has_paper ? `<button class="b" data-wpath="${esc(study)}/paper/paper.tex">Open the paper's LaTeX</button>` : `<button class="b pri" data-wstart="${esc(study)}" title="One LaTeX document, paper/paper.tex, from the template: the abstract and the usual headings; the agents are told to write there">Start the paper</button>`}
-      ${r && r.pdf ? `<button class="b" data-wpath="${esc(r.pdf)}">Open the compiled PDF</button>` : ""}<button class="b" data-wpath="${esc(study)}/README.md">Open the README</button></div></div>`;
+      ${r && r.pdf ? `<button class="b" data-wpath="${esc(r.pdf)}">Open the compiled PDF</button>` : ""}<button class="b" data-wpath="${esc(study)}/README.md">Open the README</button></div>${unsealed(study) ? sealBox(unsealed(study)) : ""}</div>`;
     m.innerHTML = `<div class="wbar">${showBtn}<span class="wpath">${esc(wsSel === "." ? curWs() : wsSel)}/</span></div><div class="wfold">${card}${d
       ? `<div class="card2"><table class="t files"><tr><th>Name</th><th>Size</th><th></th></tr>${d.entries.map((e) => `<tr><td class="m"><a href="#" data-wpath="${esc(e.path)}" data-wdir="${esc(e.dir ? 1 : "")}">${esc(e.name)}${e.dir ? "/" : ""}</a>${e.virtual ? ` <i>not written yet</i>` : ""}</td><td>${e.dir ? "" : esc(fsize(e.size))}</td><td>${e.comments ? `<span class="ct">${esc(e.comments)}</span>` : ""}</td></tr>`).join("")}</table>${d.entries.length ? "" : `<p class="sub">Empty.</p>`}</div>`
       : `<p class="sub">Reading…</p>`}</div>`;
+  }
+  function sealsAll() {                              // the research's folder: each study not sealed yet, with its Seal button
+    const xs = (D.studies || []).filter((s) => unsealed(s.study));
+    if (wsSel !== "." || !xs.length) return "";
+    return `<div class="card2"><h3>${xs.length === 1 ? "A study is" : `${xs.length} studies are`} not sealed</h3><p class="sub">A study's first research run seals it: it freezes the plan in study.toml and spends trial 1. Open a study's folder to read what sealing it freezes.</p>
+      ${xs.map((s) => `<div class="sealline"><span class="nseal">Not sealed</span><a href="#" data-wpath="${esc(s.study)}" data-wdir="1"><b>${esc(s.study)}</b></a><span class="src">${esc(s.name)}</span>${s.ready ? `<button class="b sm" data-seal="${esc(s.study)}">Seal…</button>` : `<span class="src">${notYet(s)}</span>`}</div>`).join("")}</div>`;
   }
   function buildFile() {
     const f = wsFile, m = $("#wMain"), T = wsIsText(f), url = LAB.fileUrl(f.path), R = T && (f.kind === "md" || f.kind === "tex");
@@ -2004,6 +2030,7 @@
         <h3>#${esc(it.id)} · ${esc(it.what)}</h3>
         <div class="meta">from <b>${esc(it.from)}</b> at ${esc(it.at || "")} · ${it.type === "choice" ? `<span class="qkind">${it.multi ? "multiple choice" : "single choice"}${it.other ? " + other" : ""}</span>` : `<span class="personact">a person's act · ${esc(it.kind)}</span>`}</div>
         ${it.detail ? `<p class="det">${esc(it.detail)}</p>` : ""}
+        ${it.kind === "experiment" ? sealLine(it.study) : ""}
         ${it.type === "approval" ? `<div class="acts"><button class="b${inboxNote[it.id] === "approve" ? " pri" : ""}" data-inbox="approve" data-id="${esc(it.id)}">Approve…</button><button class="b${inboxNote[it.id] === "deny" ? " pri" : ""}" data-inbox="deny" data-id="${esc(it.id)}">Deny…</button></div>` : ""}
         ${form(it)}
       </div></div>`).join("");
@@ -2261,6 +2288,55 @@
   const xt = (iso) => (!iso ? "—" : LAB.hm ? LAB.hm(iso) : String(iso).replace("T", " ").slice(5, 16));
   const pct = (x) => `${Math.round(Math.max(0, Math.min(1, +x || 0)) * 100)}%`;
   const xkey = (x) => [x.study, x.name].join("/");   // a key, escaped wherever it is drawn
+  // ---------- the seal: a study's first research run freezes study.toml (openlab study seal; show_study_seal) ----------
+  const studyOf = (rel) => (D.studies || []).find((s) => s.study === rel);
+  const notYet = (s) => `Not yet: ${esc(s.blocked)}${s.fix ? ` · ${esc(String(s.fix).replace(/`/g, ""))}` : ""}`;
+  const unsealed = (rel) => { const s = studyOf(rel); return s && !s.sealed && s.mode !== "review" && s.terms ? s : null; };
+  const SEAL_WHY = "Sealing fixes the study's plan before any result is seen, so a result cannot be picked afterwards by changing the split, the metric or the budget.";
+  const sealList = (t) => `<ul>${t.freezes.map((r) => `<li>${esc(r.what)}: <b>${esc(r.now)}</b></li>`).join("")}<li>and every other key of study.toml</li></ul>`;
+  function sealBox(s) {                              // the study card: what sealing is, what it freezes and costs, the Seal button
+    const t = s.terms;
+    return `<div class="sealbox" data-sealbox="${esc(s.study)}"><p><span class="nseal">Not sealed</span> <b>The plan of ${esc(s.study)} (its study.toml) is not frozen yet.</b> ${esc(SEAL_WHY)}</p>
+      <p>Sealing runs the study's first research run. It freezes:</p>${sealList(t)}
+      <p>It spends <b>trial 1</b> of the ${esc(t.trials)}-trial budget. The holdout is untouched: only your holdout look ever scores it. After the seal, a change to study.toml is an amendment (<code>openlab study amend</code>), and a change to the fields above needs your signature.</p>
+      <div class="row2">${s.ready ? `<button class="b pri" data-seal="${esc(s.study)}">Seal…</button><span class="src">or <code>openlab study seal ${esc(s.study)}</code> in a terminal</span>`
+        : `<button class="b" disabled title="${esc(s.blocked)}">Seal…</button><span class="src">${notYet(s)}</span>`}</div></div>`;
+  }
+  function sealLine(rel) {                           // an experiment or an inbox item whose study is not sealed
+    const s = unsealed(rel); if (!s) return "";
+    return `<div class="sealline" data-sealline="${esc(rel)}"><span class="nseal">Not sealed</span><span>The study ${esc(rel)} is not sealed: its first research run freezes its plan (split and holdout, budget, instrument pins, primary metric) and spends trial 1.</span>`
+      + (s.ready ? `<button class="b sm" data-seal="${esc(rel)}">Seal ${esc(rel)}…</button>` : `<span class="src">${notYet(s)}</span>`) + `</div>`;
+  }
+  let slStudy = "";
+  function openSeal(rel) {                           // the confirm: the consequences, then the passphrase signs the seal
+    if (!LIVEM) return toast("Demo: in openlab show, Seal runs the study's first research run, signed with your passphrase.");
+    const s = unsealed(rel); if (!s) return toast(`${rel} is already sealed.`);
+    slStudy = rel; const t = s.terms;
+    $("#slT").textContent = rel;
+    $("#slBody").innerHTML = `<p><b>Seal ${esc(rel)} now?</b> ${esc(SEAL_WHY)}</p><p>This runs the study's first research run. It freezes study.toml as the plan:</p>${sealList(t)}
+      <ul><li>It spends <b>trial 1</b> of the budget (${esc(t.trials)} trials).</li><li>The holdout is untouched: only your holdout look scores it.</li>
+      <li>Afterwards an edit of study.toml is an amendment (<code>openlab study amend</code>); a change to the fields above needs your signature.</li><li>A seal cannot be undone.</li></ul>`;
+    $("#slOut").innerHTML = ""; $("#slP").value = ""; $("#slN").value = ""; $("#slF").textContent = "";
+    $("#slOk").disabled = false; $("#slOk").style.display = ""; $("#slForm").style.display = ""; $("#slX").textContent = "Cancel";
+    $("#sl").showModal(); $("#slP").focus();
+  }
+  async function sealNow() {
+    const pass = $("#slP").value; if (!pass) return toast("Your passphrase signs the seal.");
+    const ok = $("#slOk"); if (ok.disabled) return; ok.disabled = true; $("#slF").textContent = "Sealing: the first research run is running…";
+    const env = await LAB.api("show_study_seal", { study: slStudy, note: $("#slN").value.trim(), passphrase: pass });
+    ok.disabled = false; $("#slF").textContent = ""; $("#slP").value = "";
+    if (!env.ok) {
+      $("#slOut").innerHTML = `<div class="refused">Not sealed: ${esc(LAB.stale ? "this page's link is from an earlier run of openlab show. Open the link it printed when it last started, then seal again." : `${env.error}${env.meaning ? ": " + env.meaning : ""}`)}${env.try ? `<br>${esc(env.try)}` : ""}</div>`;
+      return;
+    }
+    const r = env.result, v = r.value || {}, num = (x) => (typeof x === "number" ? String(+x.toPrecision(4)) : "");
+    $("#slOut").innerHTML = `<div class="ok"><b>Sealed.</b> study.toml is now ${esc(r.plan)}. ${esc(r.trial)}.<br>Result <code>${esc(r.result)}</code>: ${esc(r.metric)} <b>${esc(num(v.value))}</b>${v.lo != null ? ` [${esc(num(v.lo))}, ${esc(num(v.hi))}]` : ""}${r.audit ? ` · audit ${esc(r.audit)}` : ""}</div>`;
+    ok.style.display = "none"; $("#slForm").style.display = "none"; $("#slX").textContent = "Close"; toast(`${slStudy} sealed: ${r.result}.`); LAB.load();
+  }
+  $("#slOk").addEventListener("click", sealNow);
+  $("#slX").addEventListener("click", () => $("#sl").close());
+  $("#slP").addEventListener("keydown", (e) => { if (e.key === "Enter") sealNow(); });
+
   function xstep(x) {                                // the Roadmap step it implements, from the owner's latest plan
     if (!x.plan_step) return `<span class="src" style="margin-left:auto">no Roadmap step</span>`;
     const p = latestOf(x.owner), n = p && p.nodes.find((m) => m.id === x.plan_step);
@@ -2303,6 +2379,7 @@
       <div class="xpur">${esc(x.purpose)}</div>
       ${x.spec_error ? `<div class="refused">${esc(x.spec_error)}</div>` : ""}${x.edited ? `<div class="note2">The spec file was edited after the start. It is not run: the experiment runs the spec it was started with, and a changed one is a new experiment, under a new name.</div>` : ""}
       ${x.state === "requested" ? `<div class="note2">Waiting for you: approve inbox #${esc((rq || {}).inbox)} or run <code>openlab experiment start ${esc(x.study)} ${esc(x.name)}</code>, signed with your passphrase.</div>` : ""}
+      ${x.study_seal && !x.study_seal.sealed ? sealLine(x.study) || `<div class="sealline"><span class="nseal">Not sealed</span><span>${esc(x.study_seal.line || "")}</span></div>` : ""}
       <div class="xbars">${passes}${time}</div><div class="xmeta">${meta}</div>${jobs}${xoutPanel(key)}${fails}${end}${rx}</div>`;
   }
   function renderExperiments() {
@@ -2369,6 +2446,8 @@
   // ---------- events ----------
   document.addEventListener("click", (e) => {
     if (e.target.closest("#pal")) return;
+    const sb = e.target.closest("[data-seal]");
+    if (sb) { e.preventDefault(); e.stopPropagation(); return openSeal(sb.dataset.seal); }
     const lp = e.target.closest("[data-prompt],[data-hold],[data-leads]");
     if (lp) { e.stopPropagation(); if (lp.dataset.prompt) return openPrompt(lp.dataset.prompt);
       if (lp.dataset.hold) return hold([sess(lp.dataset.hold)].filter(Boolean), isHeld(sess(lp.dataset.hold) || {}) ? "resume" : "pause");

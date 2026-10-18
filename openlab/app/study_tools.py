@@ -124,6 +124,33 @@ def study_run(ctx: ToolContext, folder: str, note: str = "", code: str = "", see
         return s.run(**kw)
 
 
+@tool("study", mutates=True)
+def study_seal(ctx: ToolContext, folder: str, note: str = "") -> dict:
+    """Seal study.toml on purpose: the study's first research run, which writes study.toml into the record as the
+    plan and is counted as trial 1 (study_run does the same implicitly). Refused before anything runs when the study
+    is already sealed (says when, by which plan node), is a review study, or its data is not materialised. `terms`:
+    what the seal froze (the split and holdout, budget, instrument pins, primary metric and the other protected
+    fields; a later edit is a study_amend, the person signs the protected ones) and what it cost. The holdout is
+    never touched. An agent's seal still going after 14 minutes comes back as {running, job}, as study_run's."""
+    no_agent_code("study_seal")
+    with _errors():
+        from ..study.errors import StudyError
+        s = _open(ctx, folder)
+        try:
+            terms = s.seal_terms(ctx.rel(s.folder))     # refused here, before a process is started
+        except StudyError:
+            s.seal_run(note=note, rel=ctx.rel(s.folder))    # refused the same way, and the refusal recorded
+            raise
+        _assign(s.folder)
+        if CALLER.get() == "agent":
+            from ..agents.identity import current
+            from ..study import detached
+            out = detached.run(ctx.path(folder), {"note": note, "rel": ctx.rel(s.folder)}, current(), verb="seal")
+        else:
+            out = s.seal_run(note=note, rel=ctx.rel(s.folder))
+    return {**out, "terms": terms}
+
+
 SERIES_MAX = 500            # decisions one `study_series` reply carries at most
 
 

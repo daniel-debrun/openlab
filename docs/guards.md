@@ -7,7 +7,7 @@ it says what was refused (`error`), what that means (`meaning`), and what to do 
 
 | Guarantee | Enforced by | The refusal you meet |
 |---|---|---|
-| The plan comes first | the first run seals `study.toml` (a `plan` node); every run compares the file with the plan plus its amendments | `study.toml was edited after the seal` |
+| The plan comes first | the first research run seals `study.toml` (a `plan` node) and counts as trial 1; every run compares the file with the plan plus its amendments | `study.toml was edited after the seal`; `openlab study seal` on a sealed study: `... is already sealed: plan:... at ...` |
 | Protected fields change only by a person | amendments to the split, budget, sandbox, audit, primary metric, `known_at`, forecast gate, error budget or review coverage need a signed person amendment | `budget can only be amended by a person` |
 | Features cannot see the future | a view serves only the rows known at `t` (`known_at`, vintages); the truncation audit replays sampled steps holding only the past | the audit is not `clean`, and a claim resting on that run is refused |
 | No label leaks into training | a row trains a refit at `s` only if its label was known by `s`; segments are embargoed by the horizon | none: there is no way to ask for it |
@@ -36,6 +36,30 @@ it says what was refused (`error`), what that means (`meaning`), and what to do 
 | The record is append-only | SQLite with a hash chain over each node, its links, actor and session; person nodes signed | `openlab study verify` names the first edited node or bad signature |
 
 `python -m bench.harness --suite traps` plants traps of each kind and checks that the structure refuses or flags them.
+
+## Sealing, in plain words
+
+Sealing fixes a study's plan before any result is seen, so a result cannot be picked afterwards by changing the
+split, the metric or the budget. What it does:
+
+- **What seals.** The study's first research run. `openlab study run` seals implicitly. `openlab study seal STUDY`
+  (or **Seal** on the study in `openlab show`) seals on purpose, after printing what it freezes. Before the
+  `plan` node is written, the run checks `study.toml`, materialises the data and refuses a second study of a
+  question already sealed. A review study is sealed by its first `discover`.
+- **What it freezes.** All of `study.toml`, as the `plan` node. The protected fields are the ones a later change
+  needs your signature for (`PERSON_FIELDS` in `openlab/study/spec.py`): the split and holdout, the budget, the
+  sandbox, the audit, the selection rule, the primary metric, the study's own metrics, the instrument pins and the
+  instrument a dataset is read from, `known_at`, the forecast gate, the alpha budget, a declared fresh question
+  and the review's coverage floor.
+- **What it costs.** The run counts as trial 1 of `budget.trials`. The holdout is untouched: only a person's look
+  scores it.
+- **Afterwards.** An edit of `study.toml` stops the next run until it is recorded as an amendment (`openlab study
+  amend STUDY --reason ...`). An amendment that touches a protected field needs `--person`, signed with your key.
+  A seal cannot be undone.
+- **Refusals.** `openlab study seal` is refused, with nothing run, on a sealed study (`... is already sealed:
+  plan:... at ..., by ...`) and before the data is materialised (`the data of STUDY is not materialised: ...`).
+  Seal from `openlab show` is a person's act: it needs the page's link (its token and reviewer secret) and your
+  passphrase, and the `plan` node is signed as yours.
 
 ## Trust levels, stated honestly
 

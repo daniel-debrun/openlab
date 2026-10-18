@@ -12,9 +12,13 @@ literature review with no experiment).
 their hash. Each entry (a node) has a kind, a body, links to other nodes, who wrote it, and a hash that chains it to
 the entry before. `openlab study verify` recomputes the chain.
 
-**Seal.** The first run freezes `study.toml` as the plan. After that, an edit is an **amendment** with its diff and
-reason, and edits to the **protected fields** (split, budget, sandbox, audit, primary metric, `known_at`, the alpha
-budget, the review's coverage floor) need you.
+**Seal.** The study's first research run freezes `study.toml` as the plan (a `plan` node), so the plan is fixed
+before any result is seen. It counts as trial 1 and does not touch the holdout. After that, an edit is an
+**amendment** with its diff and reason, and edits to the **protected fields** (the split and holdout, budget,
+sandbox, audit, selection rule, primary metric, the study's own metrics, instrument pins, `known_at`, the forecast
+gate, the alpha budget, the review's coverage floor) need your signature. `openlab study run` seals implicitly;
+`openlab study seal` (or **Seal** in `openlab show`) does it on purpose, after saying what it freezes. A study not
+sealed yet is marked **Not sealed** in `openlab show`.
 
 **Dataset.** A registered input: a provider call, a snapshot, or a file with the recipe that makes it, identified by
 its sha256.

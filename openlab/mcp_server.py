@@ -358,7 +358,7 @@ def reference_resource() -> str:
 AGENT_TOOLS = frozenset("""
     notes_add notes_list ws_delete ws_list ws_move ws_read ws_write
     agent_activity key_info tools tool usage
-    study_new study_materialise study_run study_status study_why study_amend study_verify
+    study_new study_materialise study_run study_seal study_status study_why study_amend study_verify
     study_list study_runs study_node study_series study_log study_forecast study_fill study_forecasts
     study_screen study_prisma study_sources study_extract study_evidence study_compare study_lattice
     study_claim study_question study_hypothesis study_test study_assume study_break study_dead_end study_tree

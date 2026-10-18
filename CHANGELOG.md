@@ -39,6 +39,22 @@
     `experiment`; the hooks keep `experiment start` and `job --now` the person's. `openlab show` has an
     **Experiments** tab: each experiment's progress, jobs, runs (with their output), end and conclusion, its Roadmap
     step, and the registered instruments. See docs/experiments.md.
+- **Sealing on purpose, and seen (B11).** A person could not tell from `openlab show` that a study needed sealing,
+  what sealing does, or how to do it: the seal happened implicitly at the first research run.
+  - **`openlab study seal STUDY [--note N]`** runs the study's first research run on purpose (it writes the `plan`
+    node and is trial 1). Before running, it prints what the seal freezes, with the study's values (the protected
+    fields of `spec.PERSON_FIELDS`: the split and holdout, budget, instrument pins, primary metric and the rest),
+    and what it costs. It is refused, recorded and with nothing run, once sealed (naming when and the `plan` node),
+    on a review study, or before the data is materialised. Over MCP it is `study_seal` (detached for an agent, as
+    `study_run`).
+  - **`openlab show`** marks each unsealed study **Not sealed** (in the Workspace tree, on the research's folder and
+    on the study's card) with a plain explanation and a **Seal…** button. Its confirm names the consequences; the
+    passphrase signs the run as the person's act through the server's existing protections (`show_study_seal`).
+    The dialog shows the trial, the result id and the primary metric, or the refusal. The snapshot carries
+    `studies` (each study's seal, and for an unsealed one its terms and whether it can be sealed now).
+  - **Experiments** of an unsealed study say so: the Experiments card and the inbox item (with a Seal button),
+    `experiment status` and `list`, the `experiment_request` reply and the start preview the person signs.
+  - Docs: README, the glossary, guards.md (Sealing, in plain words), show.md (Sealing a study), cli.md.
 
 ## 2026-10-14 -- 1.3.0: openlab show, the workspace and the release
 

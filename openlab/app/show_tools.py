@@ -738,7 +738,46 @@ def show_snapshot(ctx: ToolContext) -> dict:
                 "plans": plans(store, agents, every), "feed": feed(store), "inbox": pending, "answered": answered,
                 "queue": queue(), "settings": settings(store.root), "ledger": ledger(store.root, folders),
                 "experiments": experiments(store, folders), "instruments": instruments(store.root, folders),
-                "control_head": store.head()}
+                "studies": seals(store.root, folders), "control_head": store.head()}
+
+
+def seals(root: Path, folders: list) -> list:
+    """Every study with its seal (openlab.study.sealing.overview): an unsealed one with what sealing it freezes and
+    costs, and whether it can be sealed now (the Not sealed badge and the Seal button)."""
+    from ..study import sealing
+    try:
+        return sealing.overview(root, folders)
+    except Exception:                                                       # noqa: BLE001 -- the page still draws
+        return []
+
+
+@tool("research", mutates=True, human=True)
+def show_study_seal(ctx: ToolContext, study: str, note: str = "") -> dict:
+    """A person seals a study from openlab show (the Seal button, after its confirm), signed with the person key:
+    the study's first research run, which writes study.toml into the record as the plan and is counted as trial 1;
+    the holdout is not touched. Refused before anything runs when it is already sealed, a review study, or its data
+    is not materialised. Returns the trial, the result id and the primary metric."""
+    from .. import study as _study
+    from ..study import sealing
+    from ..study.errors import StudyError
+    from .agent_tools import _person
+    from .registry import ToolError
+    folder = ctx.path(study or ".")
+    if not (folder / "study.toml").is_file():
+        raise ToolError(f"{study!r} is not a study of this research", "", "the Workspace lists the studies")
+    rel = ctx.rel(folder) if folder != ctx.root else "."
+    try:
+        out = _study.open(folder).seal_run(note=note.strip() or "sealed in openlab show", actor="person", rel=rel)
+    except StudyError as e:
+        raise ToolError(e.error, e.meaning, e.fix) from None
+    brief = {"study": rel, **sealing.summary(out), "audit": out.get("audit")}
+    try:
+        st, by = _store(ctx), _person()
+        st.event(by, "note", summary=f"{by} sealed {rel}: {brief['plan']}, {brief['result']}",
+                 payload={"study": rel, "plan": brief["plan"], "result": brief["result"]})
+    except Exception:                                                       # noqa: BLE001 -- the seal stands
+        pass
+    return brief
 
 
 def experiments(store, folders: list) -> list:

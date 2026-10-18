@@ -20,7 +20,7 @@ trial, alpha budget, frontier, lattice, level).
 
 | Kind | Verbs |
 |---|---|
-| core | `new`, `materialise`, `run` (`--seed`, `--op`, `--parent`, `--ref`), `promote`, `status`, `runs`, `why`, `show`, `amend`, `verify` |
+| core | `new`, `materialise`, `seal` (`--note`), `run` (`--seed`, `--op`, `--parent`, `--ref`), `promote`, `status`, `runs`, `why`, `show`, `amend`, `verify` |
 | holdout | `holdout` (a person's look), `holdout-export`, `holdout-score`, `score` (labels kept by the person) |
 | search and selection | `search`, `select`, `check`, `ensemble`, `critiques`, `lesson`, `lessons`, `compare` |
 | literature | `discover`, `fetch`, `find`, `screen`, `extract`, `evidence`, `sources`, `prisma`, `lattice`, `recall`, `monitor` |
@@ -29,6 +29,12 @@ trial, alpha budget, frontier, lattice, level).
 | replication | `replicate`, `fidelity`, `replication`, `replications`, `reproduce`, `bundle` |
 | paper | `paper`, `paper-lint`, `verify-paper` |
 | forward | `forecast`, `fill`, `schedule` |
+
+`openlab study seal STUDY [--note N]` seals `study.toml` on purpose. It is the study's first research run, counted
+as trial 1. Before it runs, it prints what the seal freezes (the split and holdout, budget, instrument pins, primary
+metric and the other protected fields) and what it costs. It is refused, with nothing run, when the study is already
+sealed (it names when and the `plan` node), is a review study (its first `discover` seals it), or its data is not
+materialised. `openlab study run` still seals implicitly. Over MCP it is `study_seal`.
 
 `openlab lessons find QUERY` ranks the lessons of every study in the workspace.
 

@@ -81,8 +81,12 @@ The package is `openlab-research` on PyPI; the command and the Python package ar
 
 Three words come up everywhere:
 
-- **Seal.** The first run freezes `study.toml`. After that, an edit is an amendment with a reason, and edits to
-  the fields that protect the result (split, budget, primary metric and a few more) need you.
+- **Seal.** Sealing fixes a study's plan before any result is seen, so nobody can pick a result afterwards by
+  changing the split, the metric or the budget. The study's first research run seals it: it freezes `study.toml`
+  (the split and holdout, the budget, the instrument pins, the primary metric and a few more) and counts as trial 1.
+  It never touches the holdout. After that, an edit is an amendment with a reason, and edits to those protected
+  fields need your signature. To seal on purpose, run `openlab study seal STUDY` (it says what it freezes, then
+  runs), or press **Seal** on the study in `openlab show`, which marks every unsealed study **Not sealed**.
 - **Trial.** A distinct research run, counted against `budget.trials`. An identical rerun is cached and free.
 - **Look.** One scoring of the held-out rows. Only you can spend one, counted against `budget.holdout_looks`.
 

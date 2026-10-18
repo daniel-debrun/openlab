@@ -96,24 +96,54 @@ class Study:
         new) and the run's audit verdict. `code`: a branch's working copy (`branches/<id>`, openlab.study.branches)
         instead of the study's own model.py. `op`, `parent`, `refs`: the run's place in the search tree
         (openlab.study.runner.execute)."""
-        def go() -> dict:
-            from .branches import resolve
-            code_dir, branch = resolve(self, code)
-            node, trial = self._experiment("runner").execute(self, note=note, actor=actor, code_dir=code_dir,
-                                                             branch=branch, seed=seed, parent=parent, op=op,
-                                                             refs=tuple(refs), cites=tuple(cites))
-            run = self.record.get(self.record.links(node.id, rel="of")[0][2])
-            from .preflight import unchecked
-            warn = None if trial.get("cached") else unchecked(self.record, run.payload["code"])
-            if warn:                                    # a second line: the first still says the trial
-                trial = {**trial, "warning": warn, "summary": f"{trial['summary']}\nwarning: {warn}"}
-            return {"trial": trial, **_node(node), "audit": run.payload["audit"].get("verdict"),
-                    **({"branch": branch} if branch else {})}
         return self._act("run", {"note": note, **({"code": code} if code else {}),
                                  **({"seed": seed} if seed is not None else {}),
                                  **({"parent": parent} if parent else {}), **({"op": op} if op else {}),
                                  **({"refs": list(refs)} if refs else {}),
-                                 **({"cites": list(cites)} if cites else {})}, actor, go)
+                                 **({"cites": list(cites)} if cites else {})}, actor,
+                         lambda: self._research(note, actor, code, seed, parent, op, refs, cites))
+
+    def _research(self, note: str = "", actor: str = "agent", code: str = "", seed: int | None = None,
+                  parent: str = "", op: str = "", refs: list | tuple = (), cites: list | tuple = ()) -> dict:
+        from .branches import resolve
+        code_dir, branch = resolve(self, code)
+        node, trial = self._experiment("runner").execute(self, note=note, actor=actor, code_dir=code_dir,
+                                                         branch=branch, seed=seed, parent=parent, op=op,
+                                                         refs=tuple(refs), cites=tuple(cites))
+        run = self.record.get(self.record.links(node.id, rel="of")[0][2])
+        from .preflight import unchecked
+        warn = None if trial.get("cached") else unchecked(self.record, run.payload["code"])
+        if warn:                                    # a second line: the first still says the trial
+            trial = {**trial, "warning": warn, "summary": f"{trial['summary']}\nwarning: {warn}"}
+        return {"trial": trial, **_node(node), "audit": run.payload["audit"].get("verdict"),
+                **({"branch": branch} if branch else {})}
+
+    def seal_terms(self, rel: str = "") -> dict:
+        """What sealing this study now freezes and costs (openlab.study.sealing.terms); a StudyError when it cannot
+        be sealed: already sealed (when, by which plan node), a review study, or its data not materialised."""
+        from . import sealing
+        return sealing.check(self, rel)
+
+    def seal_run(self, note: str = "", actor: str = "agent", rel: str = "") -> dict:
+        """Seal study.toml on purpose: the study's first research run, which writes the plan node and is counted as
+        trial 1 (openlab.study.sealing). Refused, and recorded, when `seal_terms` refuses. The result is the run's,
+        with `seal`: the plan node, when, by whom, and the primary metric."""
+        from . import sealing
+
+        def go() -> dict:
+            sealing.check(self, rel)
+            try:
+                out = self._research(note or "the seal: the first research run", actor)
+            except StudyError as e:
+                st = sealing.state(self.folder)
+                if st["sealed"]:                    # sealed, then the run failed: the seal stands
+                    raise StudyError(e.error, f"{e.meaning + '; ' if e.meaning else ''}study.toml is sealed "
+                                     f"({st['plan']}) though the run failed", e.fix or
+                                     "fix model.py, then `openlab study run`") from None
+                raise
+            st = sealing.state(self.folder)
+            return {**out, "seal": {**st, "primary": self.spec.evaluate["metrics"][0]}}
+        return self._act("seal", {"note": note, "first_run": True}, actor, go)
 
     def promote(self, branch: str, actor: str = "agent") -> dict:
         """Copy a branch's working copy over the study's own code (openlab.study.branches.promote), recorded."""

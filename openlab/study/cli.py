@@ -421,6 +421,26 @@ def _run(a) -> dict:
                                     cites=a.cite)
 
 
+def _seal(a) -> dict:
+    """The first research run, on purpose: refused before anything runs when the study cannot be sealed; else what
+    sealing freezes and costs is printed first (stderr under --json), then the run."""
+    from . import sealing
+    s = open_study(a.folder)
+    try:
+        terms = s.seal_terms(a.folder)
+    except StudyError:
+        return s.seal_run(note=a.note, rel=a.folder)        # refused the same way, and the refusal recorded
+    print("\n".join(sealing.lines(terms) + ["running the first research run now ..."]),
+          file=sys.stderr if a.json else sys.stdout, flush=True)
+    return s.seal_run(note=a.note, rel=a.folder)
+
+
+def _seal_text(r: dict) -> list:
+    st = r.get("seal") or {}
+    return [f"sealed: study.toml is {st.get('plan', 'the plan')} ({st.get('at', '')}); edits now go through "
+            "`openlab study amend`"] + _result_text(r)
+
+
 def _materialise(a) -> dict:
     """The datasets built, and a warning per recipe edited after the file it made (rebuilt only with --refresh)."""
     from .data import stale
@@ -445,6 +465,7 @@ VERBS = {
     "new": _new,
     "materialise": lambda a: _materialise(a),
     "run": _run,
+    "seal": _seal,
     "status": lambda a: {**open_study(a.folder).status(), "running": _running(a.folder)},
     "why": lambda a: _why(a),
     "show": _show,
@@ -513,7 +534,8 @@ VERBS = {
 def _status_text(s: dict) -> list:
     out = [f"{s['name']} ({s['mode']}): {s['question']}",
            f"sealed {s['sealed_at']} ({s['plan']}): study.toml is frozen; an edit needs `openlab study amend`"
-           if s["sealed"] else "not sealed: the first run seals (freezes) study.toml"]
+           if s["sealed"] else "not sealed: the first research run seals (freezes) study.toml and is trial 1; "
+           "`openlab study seal STUDY` says what it freezes, then runs it"]
     out += [f"amended {m['at']} by {m['actor']} ({', '.join(m['changed'])}): {m['reason']}" for m in s["amendments"]]
     out += [f"dataset {d['name']}: {d['rows']} rows, sha {d['sha'][:12]}" for d in s["datasets"]]
     if s["mode"] != "review":                       # a review runs no trials
@@ -735,11 +757,12 @@ TEXT = {
                       f"next: edit [review] in study.toml, then `openlab study discover {r['folder']}` (the first "
                       f"discover seals the protocol); the steps are in {r['folder']}/README.md"
                       if r["template"] == "review" else
-                      f"next: `openlab study materialise {r['folder']}`, then `openlab study run {r['folder']}` "
-                      "(the first run seals study.toml)"],
+                      f"next: `openlab study materialise {r['folder']}`, then `openlab study seal {r['folder']}` "
+                      "(the first research run: it freezes study.toml and is trial 1)"],
     "materialise": lambda r: [x for n in r.get("datasets", [r]) for x in _node_text(n)]
                              + [f"warning: {w}" for w in r.get("warnings", [])],
     "run": _result_text,
+    "seal": _seal_text,
     "status": _status_text,
     "why": lambda r: [f"{n['id']}  by {n.get('by') or n['actor']}  {n['summary']}" for n in r.get("node", [])]
                      + ([f"  {n['id']}  {n.get('by') or n['actor']:<6}  {n['summary']}" for n in r["depends_on"]]
@@ -831,7 +854,10 @@ TEXT = {
 
 #: the words a study's output uses, one line each (`openlab study --help`)
 GLOSSARY = """words:
-  seal          the first run freezes study.toml; after it an edit needs `openlab study amend` with a reason
+  seal          the first research run (`openlab study run`, or `openlab study seal` on purpose) freezes
+                study.toml: the split and holdout, budget, instrument pins, primary metric. It spends trial 1 and
+                never touches the holdout; after it an edit needs `openlab study amend` with a reason, and the
+                person's signature for those protected fields
   look          one scoring of the held-out rows; only a person spends one, counted against budget.holdout_looks
   trial         a distinct research run, counted against budget.trials (an identical rerun is cached and free)
   alpha budget  the error budget tests spend (alpha-investing): a rejection earns some back, a miss costs
@@ -870,6 +896,9 @@ def _parser() -> argparse.ArgumentParser:
                     "(repeat it)")
     rn.add_argument("--cite", action="append", default=[], help="a lesson this run applies (repeat it): "
                     "lesson:<id>, or <study>/lesson:<id>")
+    sl = sub.add_parser("seal", parents=[common], help="seal study.toml now: the first research run (trial 1), "
+                        "after saying what it freezes; refused once sealed or before the data is materialised")
+    sl.add_argument("--note", default="")
     sub.add_parser("promote", parents=[common], help="copy a branch's working copy over the study's model.py "
                    "(recorded)").add_argument("branch", help="the branch id (branches/<id>)")
     sub.add_parser("status", parents=[common], help="the summary")
