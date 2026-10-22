@@ -334,19 +334,21 @@ def create_app(root: Optional[str] = None, token: Optional[str] = None) -> FastA
 
     @app.get("/api/machines", dependencies=[Depends(authed)])
     async def machines_now():
-        """Every machine the Machine queue lists, with its usage: this one (local) and the remote ones declared."""
+        """Every machine Compute lists: this one (local) and the nodes, each with its usage and allocations."""
         from .show_home import machines
         return {"ok": True, "result": await asyncio.get_running_loop().run_in_executor(None, machines, home, 0.8)}
 
     @app.post("/api/machines", dependencies=[Depends(authed), Depends(person_only)])
     async def machines_edit(request: Request):
-        """Declare a remote machine ({"add": {name, ssh, port}}) or drop one ({"remove": name}): a person's edit."""
+        """Add a node ({"add": {name, ssh, port, workdir, unsandboxed}}) or drop one ({"remove": name}): a person's
+        edit of box.toml."""
         from .show_home import add_machine, remove_machine
         body = await request.json()
         try:
             if isinstance(body.get("add"), dict):
                 a = body["add"]
-                out = add_machine(home, a.get("name"), a.get("ssh"), int(a.get("port") or 0))
+                out = add_machine(home, a.get("name"), a.get("ssh"), int(a.get("port") or 0), a.get("workdir") or "",
+                                  bool(a.get("unsandboxed")))
             elif body.get("remove"):
                 out = remove_machine(home, str(body["remove"]))
             else:

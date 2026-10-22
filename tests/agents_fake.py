@@ -12,7 +12,9 @@ args = sys.argv[1:]
 if os.environ.get("FAKE_ARGV"):
     with open(os.environ["FAKE_ARGV"], "w") as f:
         json.dump({"argv": args, "agent": os.environ.get("OPENLAB_AGENT"), "ws": os.environ.get("OPENLAB_WORKSPACE"),
-                   "cwd": os.getcwd()}, f)
+                   "cwd": os.getcwd(), "allocation": os.environ.get("OPENLAB_ALLOCATION"),
+                   "cuda": os.environ.get("CUDA_VISIBLE_DEVICES"), "capacity": os.environ.get("OPENLAB_BOX_CAPACITY"),
+                   "affinity": sorted(os.sched_getaffinity(0))}, f)
 mode = os.environ.get("FAKE_MODE", "normal")
 if "--fork-session" in args:                       # a side question (openlab.agents.btw): one JSON answer
     q = args[args.index("-p") + 1]

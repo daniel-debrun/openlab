@@ -30,6 +30,10 @@ without one.
 * experiment: starting a study's experiment (openlab.study.experiments), args {study, name, spec_sha}: approving
   shows what will run unattended and signs the start, which installs its crontab lines; refused when the spec file
   changed since the request.
+* harness: a harness act (openlab.harness), args {action: "lesson", lesson: <id>} (approving a proposed harness
+  lesson: its advice is then given to later agents, and the harness version its edit made may become active;
+  `pick` untrusted / script where the lesson needs it) or {action: "use", version: <sha>} (making a stored harness
+  version active).
 * other: the decision only.
 A request that carries none of what its kind needs is refused when it is filed (`check_request`), so an approval
 can never be a no-op. A denial does nothing but record why; the agent reads it with agent_inbox_item.
@@ -136,6 +140,18 @@ def check_request(store: Store, agent: str, kind: str, args: Optional[dict], stu
             raise RequestError(e.error + (f" ({e.meaning})" if e.meaning else ""),
                                e.fix or 'args {"study": "<folder>", "name": "<experiment>"}; or the experiment_request '
                                "tool") from None
+    if kind == "harness":
+        action = args.get("action")
+        if action == "lesson" and str(args.get("lesson") or "").startswith("hl-"):
+            return {"action": "lesson", "lesson": args["lesson"]}
+        if action == "use" and str(args.get("version") or "").strip():
+            from ..harness import versions
+            try:
+                return {"action": "use", "version": versions.resolve(store.root, args["version"]) or "default"}
+            except Exception as e:                                  # noqa: BLE001 -- HarnessError
+                raise RequestError(str(e), "`openlab harness versions` lists the stored versions") from None
+        raise RequestError("a harness request names its act",
+                           'args {"action": "lesson", "lesson": "hl-..."} or {"action": "use", "version": "<sha>"}')
     if kind == "compute":
         return compute_request(args)
     if kind == "question":
@@ -307,6 +323,27 @@ def describe(store: Store, item: dict, approve: bool = True) -> tuple[str, list]
             what, details = experiments.describe(store.root, args.get("study") or item["study"], args.get("name", ""),
                                                  args.get("spec_sha", ""))
             head = f"{head} -> {what}"
+        elif kind == "harness":
+            from ..harness import lessons, versions
+            if args.get("action") == "lesson":
+                body = lessons.get(store.root, args["lesson"])
+                head = f"{head} -> approve harness lesson {args['lesson']}"
+                details = [f"advice: {body['advice']}", f"when: {body['cue']} ({body['component']})",
+                           f"basis: {', '.join(body['basis'])}; predicted: {body['predicted']}",
+                           f"drawn from: {', '.join(body['provenance']['runs']) or 'no run named'}"
+                           + ("; UNTRUSTED (read the open web or a fetched source): --pick untrusted"
+                              if body["provenance"]["untrusted"] else "")]
+                if (body.get("edit") or {}).get("version"):
+                    ed = body["edit"]
+                    details.append(f"harness version {ed['version'][:12]} (from {str(ed['base'])[:12]}), may then "
+                                   "become active: " + ", ".join(versions.changed(store.root, ed["base"], ed["version"])))
+                    if ed.get("scripts"):
+                        details.append("it adds or changes a skill script: read `openlab harness diff "
+                                       f"{str(ed['base'])[:12]} {ed['version'][:12]}`, then --pick script")
+            else:
+                head = f"{head} -> make harness {args['version'][:12]} active"
+                details = [f"was {versions.active_sha(store.root)[:12] or 'default'}"] + \
+                    versions.diff(store.root, versions.active_sha(store.root), args["version"]).splitlines()[:40]
         elif kind in ("fresh", "continues"):
             v = args.get("why") if kind == "fresh" else args.get("continues")
             details = [f'{item["study"]}/study.toml [study] {kind} = "{v}", recorded as a person\'s amendment'
@@ -427,6 +464,11 @@ def perform(store: Store, item: dict, reason: str, by: str, pick=None) -> dict:
             from ..study import experiments
             out = experiments.start(store.root, args.get("study") or item["study"], args["name"], why,
                                     spec_sha=args.get("spec_sha", ""))
+        elif kind == "harness":
+            from ..harness import lessons, versions
+            if args.get("action") == "lesson":
+                return lessons.decide(store.root, args["lesson"], True, by, why, pick)
+            return versions.use(store.root, args["version"], why)
         elif kind == "budget":
             a = store.get(item["agent"])
             b = dict(a["budget"])
@@ -489,7 +531,10 @@ def wrap_up(store: Store, item: dict, reason: str, by: str) -> dict:
     """A denied budget request of an agent openlab holds at its limit: a short grace past what it has used (GRACE),
     and it resumes told to finish now. $ and turns can run past the limit before the hold lands (a message's spend
     is counted when it arrives), so their grace starts from the larger of the limit and what was used; minutes are
-    held within a tick. Any other denial does nothing."""
+    held within a tick. A denied harness lesson is retired. Any other denial does nothing."""
+    if item["kind"] == "harness" and (item["args"] or {}).get("action") == "lesson":
+        from ..harness import lessons
+        return lessons.decide(store.root, item["args"]["lesson"], False, by, reason)
     a = store.get(item["agent"])
     if item["kind"] != "budget" or not (item["args"] or {}).get("hold") or not _held_for_budget(a):
         return {}

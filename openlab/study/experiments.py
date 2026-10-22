@@ -860,12 +860,11 @@ def _spawn(root: Path, **kw) -> dict:
 
 
 def reaction_prompt(rel: str, spec: dict, ns: dict) -> str:
-    from ..agents.claude_setup import ROLES
+    """The task of the agent fired at the experiment's end (its role's prompt is in its brief)."""
     end, c = ns["end"].payload, _counts(ns["passes"])
     runs = [a for a in ns["jobs"]][-PROMPT_RUNS:]
     st = spec["stop"]
-    lines = [ROLES[spec["react"]["role"]][1], "",
-             f"The experiment `{spec['name']}` of the study {rel} has ended: {end['state']} ({end['reason']}).",
+    lines = [f"The experiment `{spec['name']}` of the study {rel} has ended: {end['state']} ({end['reason']}).",
              f"Its purpose: {spec['purpose']}",
              f"Passes: {c['ok']} ok and {c['failed']} failed" + (f", of {st['passes']} wanted" if st["passes"] else "")
              + (f"; until {st['until']}" if st["until"] else "") + f". Started {ns['start'].at}, ended {ns['end'].at}.",

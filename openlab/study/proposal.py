@@ -34,6 +34,7 @@ try:
 except ModuleNotFoundError:                                  # Python 3.10
     import tomli as tomllib
 
+from ..harness import load as load_harness
 from . import schema
 from . import spec as _spec
 from .errors import StudyError
@@ -1080,23 +1081,7 @@ def _where(folder) -> tuple:
         return root, str(folder)
 
 
-PLANNER = """Draft the research proposal for the study {rel} (an openlab study folder) from the person's prompt below.
-
-1. Read {rel}/proposal.toml (a skeleton; each field says what goes in it) and {rel}/study.toml.
-2. If it helps, scan the literature briefly (WebSearch, or openlab_tool("paper_search")) for the background, the
-   baselines and the risks. Keep it short: a few searches, no full reading.
-3. Fill proposal.toml: title, question, a short background, hypotheses (statement, prediction, falsifier: the result
-   that would refute it), branches (question, the hypotheses it serves, role {roles}, method, data needs,
-   budget {{usd, minutes, trials}}, a stop rule, a kill criterion), data, metrics (the primary first), baselines, a
-   [review] protocol if a branch is a literature review (role screener), the total budget, risks. The total is at most
-   ${cap_usd:g} and {cap_minutes:g} minutes; the branches' $ and trials add up to at most the total.
-   Make study.toml's data, target and split fit the proposal (mode {mode}).
-4. Run `openlab propose lint {rel}` (or openlab_tool("propose_lint")) and fix what it refuses, until it is clean.
-5. Stop there. Approval is the person's act: do not approve, run, materialise or create any other study.
-Finish with five lines: the question, the hypotheses, the branches with their budgets, and anything unresolved.
-
-The person's prompt:
-{prompt}"""
+PLANNER = load_harness().text("workflows/propose_planner.md")
 
 
 def new(folder, prompt: str, mode: str = "static", usd: float | None = None, minutes: float | None = None) -> dict:
@@ -1141,7 +1126,8 @@ def draft(folder, prompt: str, cli: str = "claude", usd: float | None = None, mi
     root, rel = _where(folder)
     raw = load(folder)
     limit = cap(folder)
-    text = PLANNER.format(rel=rel, roles=" | ".join(ROLES), cap_usd=limit["usd"], cap_minutes=limit["minutes"],
+    from ..harness.versions import workflow
+    text = workflow(root, "propose_planner").format(rel=rel, roles=" | ".join(ROLES), cap_usd=limit["usd"], cap_minutes=limit["minutes"],
                           mode=raw.get("mode", "static"), prompt=prompt.strip())
     try:
         a = spawn(root, text, role="planner", study=rel, question=f"draft the proposal: {first_question(prompt)}",
@@ -1161,38 +1147,7 @@ def _asked_model(root, a: dict) -> str:
 
 
 # --- execution ----------------------------------------------------------------------------------------------------
-LEAD = """Execute the approved research proposal of the study {rel}: {title}
-It is signed off by a person (proposal {pid}, sha {sha}) and the plan is sealed: do not edit proposal.toml or the
-sealed fields of study.toml (an edit is refused until a person records an amendment).
-
-Question: {question} (question node {root})
-
-Hypotheses (each decided by its falsifier):
-{hyps}
-
-Branches (each is one frontier item; give each to one child agent):
-{branches}
-
-How to run it:
-1. Delegate each branch with openlab_agent_spawn(prompt, role=<the branch's role>, study="{rel}",
-   question="<branch id>: <branch question>", budget_usd=<the branch's $>, minutes=<the branch's minutes>), never more
-   than the branch's budget. Never delegate with Claude Code's own Agent or Task tool: it is refused to a lead,
-   because such a sub-agent runs outside the branch budget and the role prompt. The child's prompt carries the branch's method, data needs, hypotheses (node ids and
-   falsifiers), trial share, stop rule, kill criterion and frontier item, and tells it to lease the item first with
-   openlab_study_take(folder="{rel}", item=<item>) and to stop at its trial share.
-2. A child that meets its kill criterion records each hypothesis it killed as a dead end, with its evidence:
-   openlab_study_dead_end(folder="{rel}", of=<hypothesis node>, statement, reason, tags, shown_by=[result, evidence or
-   test ids]), then openlab_tool("propose_stop", {{folder: "{rel}", branch: <id>, reason, killed: true}}).
-   Siblings read the dead ends before they start anything.
-3. When a stop rule fires (or a branch's budget is spent), the branch stops: openlab_tool("propose_stop",
-   {{folder: "{rel}", branch: <id>, reason}}) and the child ends.
-4. Person acts (holdout looks, protected amendments, more budget, a fresh question) go to openlab_agent_request; do
-   other work meanwhile. If nothing can go on without the person, say so and end: once they decide, they resume
-   the run (`openlab propose execute --resume`), and a new lead gets the unfinished branches.
-5. openlab_agent_wait waits for children; openlab_propose_status(folder="{rel}") shows each branch's agents, spend,
-   trials and hypotheses.
-6. Finish with a summary: the hypotheses tested, killed and untouched (with node ids), each branch's state and spend,
-   and what is left open."""
+LEAD = load_harness().text("workflows/propose_lead.md")
 
 
 def _hyp_line(h: dict, tree: dict) -> str:
@@ -1211,13 +1166,7 @@ def _branch_line(b: dict, s: dict) -> str:
                "the study's model.py, which other branches share" if KIND_OF[b["role"]] == "experiment" else ""))
 
 
-RESUME = """This RESUMES the execution of the study {rel}: earlier agents stopped ({why}).
-Finished branches (do not redo them): {finished}
-Person decisions since the agents asked: {decisions}
-Budget left for this run: ${usd:g}, {minutes:g} min (the proposal's total less what the earlier agents spent).
-Only the branches below are left; read openlab_propose_status(folder="{rel}") and the study's dead ends first.
-
-"""
+RESUME = load_harness().text("workflows/propose_resume.md")
 
 
 def brief(study, only=None, preamble: str = "") -> str:
@@ -1226,11 +1175,12 @@ def brief(study, only=None, preamble: str = "") -> str:
     node = require(study)
     raw, tree = node.payload["proposal"], node.payload["tree"]
     states = {s["branch"]["id"]: s for s in branch_states(study)}
-    _, rel = _where(study.folder)
+    from ..harness.versions import workflow
+    root, rel = _where(study.folder)
     branches = [b for b in raw["branches"] if only is None or b["id"] in only]
     served = {h for b in branches for h in b.get("serves") or []}
     hyps = [h for h in raw.get("hypotheses") or [] if only is None or h["id"] in served]
-    return preamble + LEAD.format(rel=rel, title=raw["title"], pid=node.id, sha=node.payload["sha"][:12],
+    return preamble + workflow(root, "propose_lead").format(rel=rel, title=raw["title"], pid=node.id, sha=node.payload["sha"][:12],
                                   question=raw["question"], root=tree.get("root", "?"),
                                   hyps="\n".join(_hyp_line(h, tree) for h in hyps) or "- none",
                                   branches="\n".join(_branch_line(b, states[b["id"]]) for b in branches))
@@ -1317,7 +1267,8 @@ def execute(study, cli: str = "claude", dry_run: bool = False, resume: bool = Fa
                              f"`openlab propose amend {rel} --person --reason ...`, then resumes")
         budget = plan["budget"]
         why = "; ".join(plan["blocked"]) or "their leads ended"
-        text = brief(study, only=plan["left"], preamble=RESUME.format(
+        from ..harness.versions import workflow
+        text = brief(study, only=plan["left"], preamble=workflow(root, "propose_resume").format(
             rel=rel, why=why, finished=", ".join(plan["finished"]) or "none",
             decisions="; ".join(plan["decisions"]) or "none", usd=budget["usd"], minutes=budget["minutes"]))
     else:

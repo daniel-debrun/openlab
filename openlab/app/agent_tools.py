@@ -38,20 +38,26 @@ def _row(a: dict) -> dict:
 @tool("research", mutates=True)
 def agent_spawn(ctx: ToolContext, prompt: str, role: str = "agent", study: str = "", question: str = "",
                 budget_usd: float = 0.0, minutes: float = 0.0, cli: str = "claude", model: str = "",
-                decide: str = "") -> dict:
+                decide: str = "", resources: Optional[dict] = None, node: str = "",
+                params: Optional[dict] = None) -> dict:
     """Delegate a sub-question to a new child agent (you are its parent); its budget comes out of yours. Roles
-    with their own brief: adversary (attacks a result before it goes into a paper). `decide` "self": the child
-    makes its own choices instead of asking the person (a child of such an agent always does)."""
+    with their own brief: lead, screener, replicator, experimenter, reviewer, adversary (attacks a result before it
+    goes into a paper). `decide` "self": the child makes its own choices instead of asking the person (a child of
+    such an agent always does). `resources` {cores, memory_gb, gpus, gpu_model}: what the child holds for its life
+    on one node, which openlab picks (`node` pins one; openlab_tool('nodes') lists them); without it the child
+    shares your allocation, if you have one. The answer says whether it is running or queued, and why. `params`:
+    settings for its work (seeds, a config), recorded and put in its brief as data."""
     from ..agents.spawn import AgentError, spawn
     self_id = _self_id()
     parent = self_id if _store(ctx).get(self_id) else None
     try:
         a = spawn(_store(ctx).root, prompt, role=role, study=study or None, question=question or None,
                   parent=parent, cli=cli, model=model or None,
-                  budget={"usd": budget_usd or None, "minutes": minutes or None}, decide=decide)
+                  budget={"usd": budget_usd or None, "minutes": minutes or None}, decide=decide,
+                  resources=resources or None, node=node, params=params or None)
     except AgentError as e:
         raise ToolError(e.error, e.meaning, e.try_) from None
-    return {**_row(a), "model": a["model"] or None,
+    return {**_row(a), "model": a["model"] or None, **({"allocation": a["allocation"]} if a.get("allocation") else {}),
             "next": "openlab_agent_wait(ids) waits for it; openlab_tool('agent_log', {'id': ...}) shows its events"}
 
 
@@ -393,6 +399,38 @@ def agent_control_leads(ctx: ToolContext, action: str, reason: str) -> dict:
              and (a["control"] != "pause" if action == "pause" else a["control"] == "pause")]
     done = [agent_control(ctx, a["id"], action, reason) for a in leads]
     return {"action": action, "leads": done}
+
+
+@tool("research")
+def nodes(ctx: ToolContext) -> dict:
+    """The nodes a worker can be placed on (this machine and the person's inventory): what each offers and has free
+    now, the live allocations (who holds what, what waits and why), and yours. A worker asks for a shape with
+    openlab_agent_spawn(resources=...); only the person adds a node."""
+    from ..nodes import alloc as A
+    from ..nodes.inventory import NodeError, nodes as inventory, offer, probe
+    held, out = A.rows(), []
+    for n in inventory():
+        try:
+            d = probe(n)
+            o = offer(n, d)
+        except NodeError as e:
+            out.append({"name": n.name, "backend": n.backend, "error": e.error})
+            continue
+        if n.backend == "slurm":
+            out.append({"name": n.name, "backend": "slurm", "queues": "Slurm queues a request it cannot start now",
+                        "partitions": [{k: p[k] for k in ("name", "minutes", "cores", "memory_gb", "gpus", "gpu_model")}
+                                       for p in o["partitions"]]})
+            continue
+        f = A._free(n, o, held)
+        out.append({"name": n.name, "backend": n.backend, "cores": o["cores"], "memory_gb": o["memory_gb"],
+                    "gpus": [g["name"] for g in o["gpus"]], "free": {"cores": len(f["cpus"]),
+                                                                     "memory_gb": round(f["memory_gb"], 1),
+                                                                     "gpus": len(f["gpus"])},
+                    "sandboxed": bool(d.get("bwrap")) or n.backend == "local"})
+    me = A.of_agent(_self_id()) if _self_id() else None
+    return {"nodes": out, "allocations": [{k: r[k] for k in ("id", "agent", "state", "node", "cores", "memory_gb",
+                                                             "gpus", "gpu_names", "why")} for r in held],
+            "yours": A.describe(me) if me else None}
 
 
 @tool("research")

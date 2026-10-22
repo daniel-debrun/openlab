@@ -18,3 +18,6 @@ python -m bench.harness --suite traps,reproducibility --study studies/weather_em
 
 A study given with `--study` is copied to a temp dir first. Results go to `bench/results/harness/<UTC time>.json`.
 Needs bwrap (the runner's sandbox).
+
+`bench/paperbench/` is the PaperBench adapter: the lead's instruction and the instrument it hands in through
+([docs/benchmark.md](../docs/benchmark.md#paperbench-an-instruction-and-an-instrument)).

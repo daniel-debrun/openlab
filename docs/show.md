@@ -7,17 +7,16 @@ passphrase.
 
 | tab | what it shows | from |
 |---|---|---|
-| Activity | each agent and person: state, the tool call it is in (with a live timer), its last three actions, when it was last heard from (amber after 90 s of silence while working), spend, turns, tool calls, flags; on each live lead, **Prompt** and **⏸ / ▶** | the control store, as `openlab watch` reads it |
-| Inbox | a person's acts to approve or deny (signed with your passphrase, with an optional message), and agents' questions to answer (their choices, or your own words) | the inbox |
-| Roadmap | each agent's plan as a Gantt chart, by version; the plan changelog on the right picks the version; a step's panel opens the agent's conversation up to the call that marked it done | `agent_plan`, `agent_plan_node`, `show_conversation` |
-| Board | every step of every plan in columns: backlog, ready, in progress, waiting, done, failed or dropped | the same plans |
-| Experiments | one card per experiment of the studies: its state, purpose and Roadmap step, a bar of passes done against the target (failed in red) and of time against `until`, its start, last pass and duration, each job's schedule, next time and last runs (a click shows a run's output), failures, how it ended and the reaction agent with its conclusion; below, every registered instrument version with its capabilities, runs, last run, the studies pinning it and its usage. See [experiments.md](experiments.md) | `show_snapshot` (`experiments`, `instruments`), `instrument_output`, `instrument_show` |
-| Burn | steps done against scope as the plan changes, and each agent's spend against its budget with when it runs out | the plans and the store |
-| RAID | issues (a step the record disagrees with, a repeated refusal, a silent agent), dependencies (what waits for you or the box), risks (an agent near its budget), assumptions (the record's hypotheses, which hold once a test of them rejects the null, and its assumptions, until a break shows one does not) | derived from the above |
+| Inbox | a person's acts to approve or deny (signed with your passphrase, with an optional message), and agents' questions to answer (their choices, or your own words); a harness lesson shows its advice and the contrast of runs it rests on, each signal marked moved or within the noise | the inbox, `openlab.harness` |
+| Roadmap | where the run stands: when the lead's last step finishes, and a square per step pending now (red: the record disagrees, purple: needs you, amber: waiting, blue: running; hovering one lights its row). **In progress** lists the chain of steps the lead's last step waits on; **Finished** has one folded row per worker, each lead with **Prompt** and **⏸ / ▶**. Three views: **Gantt** (bars carry no labels; hover one for its name, state and evidence), **Board** (each step's name in its column: backlog, ready, in progress, waiting, done, failed or dropped) and **Assumptions** (the record's hypotheses and assumptions, and whether they hold). A step's panel opens from the bottom: its state, owner, needs, the record, the agent's conversation, and how its agent is running (its flags and probe signals). The plan changelog on the right picks the version; the key is behind the ⓘ | `agent_plan`, `agent_plan_node`, `show_conversation`, `harness_signals` |
+| Experiments | one card per experiment: its state, Roadmap step, passes done against the target and what it needs from you, with its jobs, runs (a click shows a run's output), timing, failures and reaction folded under it; below, every registered instrument version (click one for its usage). See [experiments.md](experiments.md) | `show_snapshot` (`experiments`, `instruments`), `instrument_output`, `instrument_show` |
+| Resources | **Spend**: steps done against scope, each agent's spend against its budget with when it runs out, trials and the error budget; then **Compute**: each machine workers run on (this one, and box.toml's nodes: ssh machines and Slurm clusters) with its use and the workers holding a share of it, the workers waiting for a node and this machine's queue of runs | the plans and the store; `/proc`, `nvidia-smi` (over ssh for a node), `sinfo`, `openlab node allocations`, `openlab box queue` |
 | Audit ledger | the studies' records, entry by entry, with **Verify chain** | each study's record |
 | Workspace | the research's files as a tree (hide it with ‹); the file you pick on the right: LaTeX and Markdown in an editor with their rendering beside it (shown or hidden), a PDF or an image as itself, other text read-only; comments on any file for the lead; a study folder's card (**Start the paper**, its PDF, its README, **Sealed** or **Not sealed** with **Seal…**); **Compile now** for the study you are in | `show_tree`, `show_open`, `show_save`, `show_comment`, `show_snapshot` (`studies`), `show_study_seal` |
-| Machine queue | each machine openlab runs on, local or remote, with its CPU, memory, GPU and disk use, then this machine's queue | `/proc`, `nvidia-smi` (over ssh for a remote one), `openlab box queue` |
-| Settings | this research's settings with their defaults, changed in place; the remote machines | `openlab.toml`, `<home>/.openlab-show.json` |
+| Settings | this research's settings with their defaults, changed in place; the remote machines; the harness versions, with **Make active** (signed) for one an approved lesson supports or that was active before | `openlab.toml`, `<home>/.openlab-show.json`, `show_harness_use` |
+
+A heading's explanation is behind the ⓘ beside it. The old tab links still work: `#activity`, `#board` and `#raid`
+open the Roadmap, `#queue` opens Resources.
 
 ## Researches: one tab each
 
@@ -29,7 +28,7 @@ folder: a file or a missing path is refused, never created. **New session** star
 the root, set up with `openlab init` and the Claude Code hooks, and its lead agent spawned there with your prompt and
 budget. It opens in its own tab. Of two new sessions with one name, one makes the folder and the other is refused.
 When the lead does not start (the agent CLI is not installed, say), the research is still made and the reply says
-why. The research's Activity tab then shows **Start the lead**, with your prompt kept, to try again once the cause is
+why. The research's Roadmap then shows **Start the lead**, with your prompt kept, to try again once the cause is
 fixed; it also offers a new lead when the last one has ended. It calls `POST /api/workspaces/NAME/lead`, which is
 refused while a lead runs. A new agent
 *inside* a research is a different thing: the lead delegates with `agent_spawn`, or you add one from the palette
@@ -45,7 +44,7 @@ tabs are kept in `<home>/.openlab-show.json`, so every page of this server sees 
 
 A lead is an agent at the top of its tree: a Claude Code session, an agent spawned with no parent, or one with the
 role `lead`. Only leads take your prompts; the agents under a lead hear only from it. Each lead's row in
-Activity has:
+the Roadmap has:
 
 - **Prompt**: a short chat with the lead (`agent_prompts` reads it).
   - **Ask now (btw)** (`agent_btw`, Ctrl+Enter): answered in seconds by a fork of the lead's Claude session with no
@@ -71,14 +70,19 @@ session** (the agents' permission mode, native sub-agents) are chosen in the New
 research*, and hold for the research's life, so every agent of it ran under the same rules. Saving a setting needs
 the link's reviewer secret, not your passphrase.
 
-## Machines
+## Compute
 
-Machine queue lists this machine (**local**) and every remote one (**remote**) declared in Settings by a name and an
-ssh host, `user@host` or `~/.ssh/config` alias: its CPU load against its cores, memory, GPUs (use and memory, by
-`nvidia-smi`) and disk, read by one small script, here with `sh` and there with `ssh -o BatchMode=yes` (it never asks
-for a password or accepts an unknown host key: run `ssh HOST` once by hand). Readings are cached (5 s here, 30 s for a
-remote) and refreshed in the background. openlab reads a machine's use; it never starts, stops or rents one. The queue
-under it is this machine's (`openlab box queue`).
+Resources' Compute part lists this machine (**local**) and every node of the inventory ([nodes.md](nodes.md)): an ssh machine with its
+CPU load against its cores, memory, GPUs (use and memory, by `nvidia-smi`) and disk, read by one small script, here
+with `sh` and there with `ssh -o BatchMode=yes` (it never asks for a password or accepts an unknown host key: run `ssh
+HOST` once by hand); a Slurm cluster with what one allocation can be at most in its partitions. Beside each, the
+workers holding an allocation on it (cores, memory, which GPUs, the Slurm job) and what it has free. Readings are
+cached (5 s here, 30 s for a remote) and refreshed in the background. Under the machines: the workers waiting for a
+node and why, then this machine's queue of runs (`openlab box queue`).
+
+Settings adds an ssh machine as a node (a `[[node]]` in box.toml, with its work folder and, for a machine without
+bwrap, your OK that runs there are unsandboxed); a Slurm cluster is added to box.toml by hand. A machine an older
+openlab show only watched is still listed, as **watched**. openlab never starts, stops or rents a machine.
 
 ## The paper workspace
 
@@ -134,7 +138,7 @@ does = "hand checks: outage labels and a forecaster's read of the maps"
 # away_until = "Wed"
 ```
 
-An optional `hours_used` is drawn against `hours`. They appear in Activity, the Roadmap and the Board. An agent assigns them a step with `owner: "sam"` in its plan.
+An optional `hours_used` is drawn against `hours`. They appear in the Roadmap (its Gantt and Board views). An agent assigns them a step with `owner: "sam"` in its plan.
 `you` is the person who holds the key.
 
 ## The Workspace: the research's files, edited and commented on

@@ -12,6 +12,7 @@ from . import propose_tools as _propose_tools  # noqa: F401,E402 -- research fro
 from . import show_tools as _show_tools  # noqa: F401,E402 -- what openlab show draws
 from . import instrument_tools as _instrument_tools  # noqa: F401,E402 -- registered programs outside the sandbox
 from . import experiment_tools as _experiment_tools  # noqa: F401,E402 -- scheduled instrument runs, then a conclusion
+from . import harness_tools as _harness_tools  # noqa: F401,E402 -- skills, probe signals, harness lessons
 from .registry import TOOLS, Tool, ToolContext, ToolError, dispatch
 
 __all__ = ["TOOLS", "Tool", "ToolContext", "ToolError", "dispatch"]

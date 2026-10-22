@@ -374,6 +374,29 @@
     { id: 10, type: "approval", kind: "budget", from: "exp-b2", at: "09:17", person: true, step: "q1",
       what: "Raise branch B's budget from $2.00 to $3.00", detail: "The GPU queue cost 4 minutes; QRF needs about 55 minutes on 2 GPUs." },
   ];
+  // a harness lesson waiting for the person, with the contrast of runs it rests on (show_tools.lesson_evidence)
+  D.inbox.push({ id: 15, type: "approval", kind: "harness", from: "rev-c3", at: "09:10", person: true,
+    what: "approve harness lesson hl-7a1e: read the review protocol before the first screening decision",
+    detail: "advice in later briefs; harness version 3f9c1a2b7d40",
+    harness: { id: "hl-7a1e", component: "role:screener", version: "3f9c1a2b7d40", quarantined: false, n: [6, 4], contrast: "hc-1f0a7c22b9e1",
+      cue: "a screener starts deciding before it has read the protocol",
+      advice: "Read the review protocol (its inclusion criteria and their wording) before the first screening decision, and quote the criterion you apply.",
+      rows: [{ what: "openlab refusals per tool call", ref: 0.041, cand: 0.012, moved: true, predicted: "down" },
+        { what: "plan steps the record contradicts, per step", ref: 0.05, cand: 0.03, moved: false, predicted: "down" },
+        { what: "$ per plan step the record shows", ref: 0.42, cand: 0.37, moved: false },
+        { what: "delivered (1) or not (0)", ref: 0.83, cand: 1, moved: false }] } });
+  // the harness versions (Settings): the packaged one, then each stored one (show_tools.harness)
+  D.harness = { versions: [
+    { sha: "a0d1f7c3e8b2", note: "the packaged harness", lesson: "", at: "", active: false, may: true },
+    { sha: "91c4e2a07b3d", note: "tool descriptions shortened", lesson: "hl-2b81", at: "2026-10-03T10:02:00+00:00", active: false, may: true },
+    { sha: "b2e07d5f1c94", note: "the adversary's brief names the branch copy", lesson: "hl-5c10", at: "2026-10-12T16:40:00+00:00", active: true, may: true },
+    { sha: "3f9c1a2b7d40", note: "proposed with a harness lesson", lesson: "hl-7a1e", at: "2026-10-17T09:10:00+00:00", active: false, may: false }] };
+  // each agent's probe signals so far (openlab harness signals): rates from its events and records
+  D.signals = { "lead-7c0f": { refusal_rate: 0.018, usd_per_ok_step: 0.31, budget_used: 0.31 },
+    "exp-a1": { refusal_rate: 0.062, usd_per_ok_step: 0.23, budget_used: 0.46 },
+    "exp-b2": { refusal_rate: 0, usd_per_ok_step: null, budget_used: 0.16 },
+    "rev-c3": { refusal_rate: 0.024, usd_per_ok_step: 0.06, budget_used: 0.12 },
+    "scr-d4": { refusal_rate: 0.009, usd_per_ok_step: 0.23, budget_used: 0.46 } };
   D.answered = [];
   LAB.answer = (id, { decision, message = "", picks = [], other = "" } = {}) => {
     const i = D.inbox.findIndex((x) => x.id === id); if (i < 0) return null;
@@ -397,7 +420,7 @@
   const xjob = (name, alias, pin, args, cron, tz, next, runs, n, failed) => ({ name, instrument: alias, pin, args, cron, tz, next, runs,
     n_runs: n, n_failed: failed, installed: !!next, capabilities: ["read", "network"] });
   D.experiments = [
-    { study: "stations", name: "live-forecast", file: "experiments/live-forecast.toml", state: "running", owner: "lead-7c0f", plan_step: "sel",
+    { study: "stations", spec: true, name: "live-forecast", file: "experiments/live-forecast.toml", state: "running", owner: "lead-7c0f", plan_step: "sel",
       purpose: "Does DRN keep its edge over EMOS on live forecasts? Judged on the CRPS of 20 daily forecasts against the observed temperatures.",
       request: { id: "experiment:3b41c0", by: "lead-7c0f", inbox: 12, status: "approved", at: "2026-10-09T13:02:11+00:00" },
       progress: { passes_ok: 8, passes_failed: 1, in_a_row: 0, target: 20, until: "2026-11-30T00:00:00-05:00", max_failures: 3,
@@ -412,7 +435,7 @@
       passes: [], failures: [xrun("fetch", "2026-10-17T11:15 UTC", "2026-10-17T11:16:02+00:00", false, 3, "exit 3"), xrun("score", "2026-10-12T23:30 America/New_York", "2026-10-13T03:30:20+00:00", false, 7, "refused: the secret WX_TOKEN is not set")],
       start: { id: "experiment_start:9e02bd", at: "2026-10-09T14:00:00+00:00", reason: "the live check of the selected model", by: "person:you" },
       end: null, reaction: { agent: "", spawn_error: "", role: "reviewer", budget: { usd: 5, minutes: 45, turns: 80 } } },
-    { study: "stations", name: "warm-start", file: "experiments/warm-start.toml", state: "reacted", owner: "exp-a1", plan_step: "d2",
+    { study: "stations", spec: true, name: "warm-start", file: "experiments/warm-start.toml", state: "reacted", owner: "exp-a1", plan_step: "d2",
       purpose: "Do station embeddings trained on 2023 transfer to the new stations? Judged on 5 weekly passes.",
       request: { id: "experiment:11aa20", by: "exp-a1", inbox: 9, status: "approved", at: "2026-09-14T09:00:00+00:00" },
       progress: { passes_ok: 5, passes_failed: 0, in_a_row: 0, target: 5, until: "", max_failures: 3, started: "2026-09-14T10:00:00+00:00",
@@ -425,7 +448,7 @@
       reaction: { agent: "reviewer-3d9a01", spawn_error: "", role: "reviewer", budget: { usd: 3, minutes: 30 }, status: "done", usd: 0.41,
         verdict: "met", by: "reviewer-3d9a01", conclusion: "The embeddings transfer: the new stations' CRPS stayed within 3% of the old ones in all 5 weeks (passes 1-5).",
         records: ["claim:7d10e2"], rests_on: ["experiment_pass:aa01", "experiment_pass:aa05"] } },
-    { study: "stations", name: "night-shift", file: "experiments/night-shift.toml", state: "requested", owner: "exp-b2", plan_step: "q1",
+    { study: "stations", spec: true, name: "night-shift", file: "experiments/night-shift.toml", state: "requested", owner: "exp-b2", plan_step: "q1",
       purpose: "Does the forest hold at night? Judged on 10 nightly passes.",
       request: { id: "experiment:5e5e01", by: "exp-b2", inbox: 14, status: "pending", at: "2026-10-17T08:40:00+00:00" },
       progress: { passes_ok: 0, passes_failed: 0, in_a_row: 0, target: 10, until: "", max_failures: 3, started: "", ended: "", elapsed_s: 0, last_pass: "", pass_fraction: 0, time_fraction: null },

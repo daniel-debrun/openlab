@@ -106,8 +106,11 @@ Both bind 127.0.0.1:8321 by default (`--host`, `--port`, `--token`, or `OPENLAB_
 |---|---|
 | `openlab env [add PKG ...]` | the Python a study's code runs in; `add` installs a package without changing any installed one |
 | `openlab box [show \| queue]` | this machine as openlab uses it (cores, memory, GPUs, the schedule in `box.toml`) and its queue of runs ([box.md](box.md)) |
+| `openlab node list \| probe \| allocations \| release ALLOC` | the nodes workers are placed on (this machine and box.toml's `[[node]]`s: SSH machines, Slurm clusters), what each has free, and the allocations ([nodes.md](nodes.md)) |
+| `openlab node exec -- CMD \| runs \| logs RUN \| wait RUN \| stop RUN \| pull` | a worker's command inside its allocation, on its node; results copied back ([nodes.md](nodes.md)) |
 | `openlab mirror status \| sync FOLDER` | the Weights & Biases mirror of a study's runs, a view and never the record ([mirror.md](mirror.md)) |
-| `openlab bench mle doctor \| prepare \| job \| status \| grade \| ab \| report` | MLE-bench, the same agent with and without openlab, graded on your machine, which keeps the answers ([benchmark.md](benchmark.md)) |
+| `openlab bench mle doctor \| prepare \| job \| status \| grade \| ab \| report \| pools \| accept` | MLE-bench, the same agent with and without openlab (or with a harness version, or best-of-n), graded on your machine, which keeps the answers ([benchmark.md](benchmark.md)) |
+| `openlab harness show \| check \| install \| use \| rollback \| signals \| contrast \| lessons \| refine \| ...` | the texts agents are briefed with, as versions you make active; probe signals, harness lessons, refinement ([harness.md](harness.md)) |
 
 ## For agents
 

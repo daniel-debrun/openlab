@@ -58,7 +58,24 @@ def cores(root: Path = CGROUP) -> int:
     quota = cgroup_cpus(root)
     if quota is not None:
         n = min(n, max(1, math.floor(quota + 1e-9)))
+    cap = share()
+    if cap.get("cores"):
+        n = min(n, int(cap["cores"]))
     return max(1, n)
+
+
+def share() -> dict:
+    """The allocation this process runs in, if any (OPENLAB_BOX_CAPACITY, set for a worker on a local allocation:
+    {cores, memory_gb, gpus}): its runs plan for and are admitted within that, not the whole machine."""
+    raw = os.environ.get("OPENLAB_BOX_CAPACITY")
+    if not raw:
+        return {}
+    import json
+    try:
+        d = json.loads(raw)
+    except ValueError:
+        return {}
+    return d if isinstance(d, dict) else {}
 
 
 def _meminfo() -> tuple:
@@ -97,16 +114,18 @@ def cgroup_memory(root: Path = CGROUP):
     return max(0, limit - max(0, used)), limit
 
 
-def memory(root: Path = CGROUP) -> tuple:
-    """(available, total) memory in bytes: the host's (/proc/meminfo), cut to the cgroup's limit when it sets one;
-    (None, None) where neither can be read."""
+def memory(root: Path = CGROUP, share: bool = True) -> tuple:
+    """(available, total) memory in bytes: the host's (/proc/meminfo), cut to the cgroup's limit when it sets one,
+    and to the allocation's share (`share`); (None, None) where neither can be read."""
     avail, total = _meminfo()
     cg = cgroup_memory(root)
-    if cg is None:
-        return avail, total
-    if total is None:
-        return cg
-    return min(avail, cg[0]), min(total, cg[1])
+    if cg is not None:
+        avail, total = (cg if total is None else (min(avail, cg[0]), min(total, cg[1])))
+    gb = globals()["share"]().get("memory_gb") if share else None
+    if gb and total is not None:
+        total = min(total, int(float(gb) * 2 ** 30))
+        avail = min(avail, total) if avail is not None else total
+    return avail, total
 
 
 def describe(root: Path = CGROUP) -> dict:

@@ -29,6 +29,7 @@ try:
 except ModuleNotFoundError:                                  # Python 3.10
     import tomli as tomllib
 
+from ..harness import load as load_harness
 from . import schema
 from .errors import StudyError
 from .record import canonical
@@ -623,44 +624,7 @@ def workspace(folder) -> tuple:
 
 
 # --- start: fetch and draft ---------------------------------------------------------------------------------------
-PLANNER = """Draft the replication plan of the paper in {folder} ({key}). The person gave only the paper: every
-choice below is yours to make from the paper, and a person approves the plan before anything is built.
-
-1. Read the paper: {folder}/paper/paper.pdf, or its text page by page in {folder}/paper/pages.txt (`=== page N ===`
-   lines; tables keep their rows there). Read the appendices too: baselines, hyperparameters and protocols are
-   often defined only there.
-2. Fill {folder}/replication.toml (each field says what goes in it):
-   - title, summary, kind (replication unless the authors released code to run: reproduction, with `code`), mode:
-     temporal when the paper evaluates forecasts made at successive origins over time (walk-forward, rolling or
-     sliding-window test sets, a model or archive updated as the test period unfolds): openlab then gives the model
-     only what is known at each decision time. static when the rows are exchangeable (a fixed random split, k-fold,
-     tabular data with no time order the evaluation depends on).
-   - methods: the paper's own method (role proposed; several when the paper proposes a family, e.g. a different
-     selected model per dataset: the first is the model, each one's numbers become claims) and the baselines its
-     headline table compares against, each with a class name, its label as printed, the page that defines it and a one-line description.
-   - metric: the paper's headline metric, one of: {metrics}. If it uses none of these, define it as the study's own:
-     set metric.better, reads and description, and write def <name>(y, pred) -> float in {folder}/metrics.py (y and
-     pred are numpy arrays, 2-D when a label has several outputs). That file is the one other file you may write.
-   - tolerance: how close our number must be to the paper's, in the metric's unit, from the paper: the spread it
-     reports over seeds or folds, the rounding of its tables, the size of its test set. Say why in the
-     justification; quote the page if the paper states the spread.
-   - data: where it comes from, its licence, and the protocol (split, evaluation set, preprocessing) as stated.
-   - claims: the numbers to check, from the headline table: each baseline's value (it shows the rebuild faithful)
-     and the proposed method's. Copy each quote from paper/pages.txt exactly: the table row with the method's label
-     and the number, as one line. When the methods are the table's columns (the row is a dataset or a setting), add
-     `header`: the header line that shows the method's label, as one line of pages.txt; openlab checks the number
-     sits under that column. A header of several levels (a group label over sub-columns): give header as a list of
-     its lines, and the method's label by level, "SC2 / γ=1−α". 3 to 8 claims is plenty.
-   - budget for the build (at most ${cap_usd:g} and {cap_minutes:g} min), with its compute: `runs` (the counted runs
-     the claims need), `run_minutes` (one run's wall minutes here) and `estimate` (how you got it). This machine
-     has {cores} cores and {memory} of memory. Scale the paper's reported timings (a timing table, its hardware,
-     epochs) to it; with none, reason from the data size and the methods' cost. Lint refuses a plan whose runs do
-     not fit {fit:.0%} of its minutes: then plan fewer seeds or settings, and say so in the tolerance and unresolved.
-   - risks, and unresolved: what the paper leaves open that the person should know.
-3. Run `openlab replicate lint {folder}` and fix what it refuses, until it is clean. It checks every quote is on its
-   page and writes its number.
-4. Stop there. Do not approve, build or create any other file (metrics.py aside).
-Finish with four lines: the methods, the claims, the metric and tolerance (with the reason), and what is unresolved."""
+PLANNER = load_harness().text("workflows/replicate_planner.md")
 
 
 def start(src: str, folder=None, usd: float | None = None, minutes: float | None = None) -> dict:
@@ -682,12 +646,7 @@ def start(src: str, folder=None, usd: float | None = None, minutes: float | None
     return {"folder": str(folder), "paper": meta, "budget": {"usd": usd, "minutes": minutes}}
 
 
-CONTINUE = """A planner already worked on this plan and stopped before it was done. Do not start over: read
-{folder}/replication.toml as it is, run `openlab replicate lint {folder}` and fix what it refuses, then check the
-choices against the paper (the appendices too) and complete what is missing. Lint now says:
-{lint}
-
-"""
+CONTINUE = load_harness().text("workflows/replicate_continue.md")
 
 
 def draft(folder, cli: str = "claude", usd: float | None = None, model: str | None = None, note: str = "") -> dict:
@@ -703,11 +662,12 @@ def draft(folder, cli: str = "claude", usd: float | None = None, model: str | No
     if approved(folder) is not None:
         raise StudyError("the plan is already approved", "an approved plan is the one built",
                          f"openlab replicate status {folder}")
-    text = PLANNER.format(folder=Path(folder).resolve(), key=meta["key"], metrics=", ".join(METRICS),
+    from ..harness.versions import workflow
+    text = workflow(root, "replicate_planner").format(folder=Path(folder).resolve(), key=meta["key"], metrics=", ".join(METRICS),
                           cap_usd=limit["usd"], cap_minutes=limit["minutes"], **machine(), fit=FIT)
     if load(folder) != load_skeleton(folder):
         lt = lint(folder)
-        text = CONTINUE.format(folder=Path(folder).resolve(), lint="\n".join(
+        text = workflow(root, "replicate_continue").format(folder=Path(folder).resolve(), lint="\n".join(
             f"- {p['error']}" for p in lt["problems"]) or "- clean") + text
     if note.strip():
         text = f"The person who approves the plan says:\n{note.strip()}\nAct on it first.\n\n" + text
@@ -876,56 +836,7 @@ def require(folder) -> tuple:
 
 
 # --- build: the builder agent -------------------------------------------------------------------------------------
-BUILD = """Build the replication of {title} ({key}) in the openlab study {folder}.
-A person approved the plan ({folder}/{md}; action {aid}, sha {sha}). The target and its tolerance ({tol:g} on {metric},
-up to {max:g} with a justification) are fixed in the record, and each paper number below is recorded as evidence
-quoted from its page. Do not edit {file}; the methods, the metric and the tolerance are the plan's.
-
-Methods:
-{methods}
-
-Numbers to check:
-{claims}
-
-Data: {data_name}, from {data_source}. Protocol: {protocol}
-
-Steps (the study's README.md has the commands in full):
-1. Data: write recipes/make_data.py for the paper's data, and set study.toml's data, target, split and evaluate to
-   the paper's protocol; record it: `openlab study amend {folder} --reason "the paper's protocol"`.
-2. Methods: one file per method under methods/ (methods/<name in lower case>.py, a class with fit and predict, its
-   docstring citing the page and the equations), methods/__init__.py, and model.py importing every class, with
-   `Model = {proposed}`. Bind each equation a method implements in paper/equations.tex as
-   \\labeq{{<name>}}{{model.<function>}}{{<the equation as printed>}} (model.py imports the function too).
-3. Baselines first: `openlab study materialise {folder}`, then `openlab study run {folder}`. Record a fidelity per
-   baseline number: `openlab study fidelity {folder} --paper <evidence> --ours <result> --arm model:<Name>`. A failed
-   fidelity means the rebuild differs: fix the method and run again (every trial counts); never the tolerance.
-4. The paper's numbers: `openlab study replication {folder} --paper <evidence> --ours <result> --arm <the claim's
-   arm> --gated-by <fidelity id>` (repeat --gated-by for each baseline fidelity). openlab computes the verdict.
-5. `openlab study paper-lint {folder}` checks each \\labeq against its function; fix every eq.gate finding.
-6. Write every deviation from the paper under "## Protocol and deviations" in README.md (kept by the report), then
-   `openlab replicate report {folder}`, which writes README.md and results/ from the record.
-7. The evaluation period (the scored rows) is scored only by `openlab study run`, each run a counted trial. A
-   check of your own (a script, a notebook) may use the training and validation data, never the evaluation
-   period's labels: an off-record score there is an uncounted trial, and a choice made from it is selected on the
-   test set. If you ran one, list it under the deviations and say what it showed.
-8. Budget: ${usd:g}, {minutes:g} min, {trials} trials. A person's act (more budget, a holdout look) goes to
-   openlab_agent_request; if nothing can go on without the person, say so and end. After the first runs,
-   `openlab replicate status {folder}` shows the pace against the plan's estimate: when it says the runs left do not
-   fit the minutes left, ask the person (more minutes, or which runs to drop) before cutting seeds or settings.
-
-What openlab handles for you (openlab://reference has the details):
-- A number the paper averages over runs (horizons, datasets, seeds): one run each (amend study.toml between them,
-  e.g. target.horizon), then give every result: `--ours <r1> --ours <r2> ...`; openlab takes their mean.
-- A number the paper prints per station, dataset or class: set evaluate.by = "key" before the first run (the key
-  column names the entity); the result then scores each entity too, and `--group NAME` checks that entity's score.
-- A model refitted at every decision on a growing archive: define `update(self, X, y)` beside fit; openlab then
-  passes only the new rows (the truncation audit refits from scratch to check it).
-- A predictive distribution over several outputs (a frame whose mu/sigma, q0.05..., m0... and weights w0...
-  columns hold one array per row): the walk scores it step by step, keeping the mean and each declared metric's
-  per-row statistics, so declare every metric you need in evaluate.metrics before the run. `crps` is the fair
-  CRPS of equal members; `crps_empirical` (and `crps` with weights) the empirical distribution's.
-- Keep long runs under the minutes left; `openlab study run` prints each trial as it is spent.
-Finish with each number's verdict, the fidelities, and the deviations."""
+BUILD = load_harness().text("workflows/replicate_build.md")
 
 
 def brief(study, raw: dict, node) -> str:
@@ -938,8 +849,9 @@ def brief(study, raw: dict, node) -> str:
                        f"{_arm(raw, c['method'])}: "
                        + ("replication, gated by the baselines' fidelities" if _check(raw, c["method"]) == "replication"
                           else "fidelity") for c in raw["claims"])
+    from ..harness.versions import workflow
     tol, bud = raw["tolerance"], raw["budget"]
-    return BUILD.format(title=raw["title"], key=raw["paper"], folder=study.folder, md=MD, file=FILE, aid=node.id,
+    return workflow(workspace(study.folder)[0], "replicate_build").format(title=raw["title"], key=raw["paper"], folder=study.folder, md=MD, file=FILE, aid=node.id,
                         sha=node.payload["args"]["sha"][:12], tol=tol["value"], metric=raw["metric"]["name"],
                         max=tol.get("max", tol["value"]), methods=methods, claims=claims,
                         data_name=raw["data"]["name"], data_source=raw["data"]["source"],
@@ -955,15 +867,7 @@ def live_builder(folder) -> dict | None:
     return next((a for a in Store(root).find(role="replicator", study=rel) if a["status"] in LIVE), None)
 
 
-RESUME = """This RESUMES the build: earlier builders stopped ({why}). Do not redo their work; read the study first
-(`openlab replicate status {folder}`, `openlab study runs {folder}`, README.md's deviations, the code under methods/).
-The record so far: {record}
-Their last notes:
-{notes}
-A run that was cut off left no result and spent no trial: start it again if it is still the next step.
-Budget left: ${usd:g}, {minutes:g} min (the plan's less what the earlier builders spent).
-
-"""
+RESUME = load_harness().text("workflows/replicate_resume.md")
 
 
 def _earlier(folder) -> list:
@@ -1030,7 +934,8 @@ def resume_preamble(s, raw: dict, earlier: list) -> tuple:
               + "".join(f"; claim {r['id']}: {r['verdict']}" for r in rep["replications"]))
     notes = [e for a in earlier for e in store.events(a["id"], n=2, kinds=("note",))]
     lines = "\n".join(f"- {e['agent']}: {(e['payload'].get('text') or e['summary'])[:600]}" for e in notes) or "- none"
-    return RESUME.format(why=why, folder=s.folder, record=record, notes=lines, usd=usd, minutes=minutes), \
+    from ..harness.versions import workflow
+    return workflow(root, "replicate_resume").format(why=why, folder=s.folder, record=record, notes=lines, usd=usd, minutes=minutes), \
         {"usd": usd, "minutes": minutes}
 
 

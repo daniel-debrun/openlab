@@ -414,7 +414,8 @@ def inbox(store, every: Optional[list] = None) -> tuple:
                 "at": i["created"], "person": not q, "what": i["reason"], "detail": i["cost_note"] or "",
                 "study": i["study"], **({"choices": args.get("choices") or [], "multi": bool(args.get("multi")),
                                          "other": bool(args.get("other"))} if q else {"asks": APPROVALS.get(i["kind"], i["kind"])}),
-                **_limit(i)}
+                **_limit(i), **({"harness": lesson_evidence(store.root, args["lesson"])}
+                                if i["kind"] == "harness" and args.get("action") == "lesson" and i["status"] == "pending" else {})}
     every = every if every is not None else store.inbox(None)
     pending = [item(i) for i in every if i["status"] == "pending"]
     done = [i for i in every if i["status"] != "pending"][-ANSWERED_MAX:]
@@ -423,6 +424,64 @@ def inbox(store, every: Optional[list] = None) -> tuple:
                  "other": (i["result"] or {}).get("other") or "", "answeredAt": i["decided_at"], "by": i["decided_by"]}
                 for i in reversed(done)]
     return pending, answered
+
+
+#: how many signals a lesson's evidence shows in the inbox: the ones it predicts, then the ones that moved
+EVIDENCE_ROWS = 6
+
+
+def lesson_evidence(root: Path, lid: str) -> dict:
+    """What a harness lesson waiting in the inbox rests on, for the person deciding it: its cue and advice, and its
+    basis contrast's signals (each side's mean, and whether the difference is past the noise), predicted ones first."""
+    from ..harness import lessons, signals
+    try:
+        body = lessons.get(root, lid)
+    except Exception:                                                       # noqa: BLE001 -- the item still draws
+        return {}
+    pred = (body.get("predicted") or {}).get("signals") or {}
+    out = {"id": lid, "cue": body.get("cue", ""), "advice": body.get("advice", ""), "component": body.get("component", ""),
+           "version": (body.get("edit") or {}).get("version", ""), "quarantined": lessons.status(root, lid) == "quarantined",
+           "n": [0, 0], "rows": []}
+    for cid in body.get("basis") or []:
+        try:
+            c = signals.load_contrast(root, cid)
+        except KeyError:
+            continue
+        rows = [r for r in c["rows"] if r.get("delta") is not None]
+        rows.sort(key=lambda r: (r["field"] not in pred, not r.get("moved")))
+        out["n"], out["contrast"] = c["n"], cid
+        out["rows"] = [{"what": r["what"], "ref": r["ref"], "cand": r["cand"], "moved": bool(r.get("moved")),
+                        "favours": r.get("favours", ""), "predicted": pred.get(r["field"], "")}
+                       for r in rows[:EVIDENCE_ROWS]]
+        break
+    return out
+
+
+def harness(root: Path) -> dict:
+    """The harness versions (Settings): each stored one with its note, when it was stored, whether it is active, and
+    whether it may become active (it was active before, or an approved lesson supports it)."""
+    from ..harness import versions
+    try:
+        default = versions.default_sha()
+        return {"versions": [{**r, "may": r["active"] or r["sha"] == default or bool(versions._supported(root, r["sha"]))}
+                             for r in versions.stored(root)]}
+    except Exception:                                                       # noqa: BLE001 -- the page still draws
+        return {"versions": []}
+
+
+@tool("research", mutates=True, human=True)
+def show_harness_use(ctx: ToolContext, ref: str, reason: str) -> dict:
+    """A person makes a harness version active from openlab show (Settings), signed with the person key: new agents
+    are briefed by it; running ones keep theirs. Refused for a version no approved lesson supports and that was
+    never active."""
+    from ..harness import HarnessError, versions
+    from .registry import ToolError
+    try:
+        return versions.use(_store(ctx).root, ref, reason)
+    except HarnessError as e:
+        raise ToolError(e.problems[0], "; ".join(e.problems[1:]), "approve a lesson that supports it first") from None
+    except PermissionError as e:
+        raise ToolError(str(e)) from None
 
 
 def queue() -> list:
@@ -738,7 +797,7 @@ def show_snapshot(ctx: ToolContext) -> dict:
                 "plans": plans(store, agents, every), "feed": feed(store), "inbox": pending, "answered": answered,
                 "queue": queue(), "settings": settings(store.root), "ledger": ledger(store.root, folders),
                 "experiments": experiments(store, folders), "instruments": instruments(store.root, folders),
-                "studies": seals(store.root, folders), "control_head": store.head()}
+                "studies": seals(store.root, folders), "harness": harness(store.root), "control_head": store.head()}
 
 
 def seals(root: Path, folders: list) -> list:

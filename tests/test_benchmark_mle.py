@@ -20,7 +20,8 @@ def local_run(argv, **kw):
     if argv[0] == "ssh":
         return subprocess.run(["bash", "-c", argv[-1]], capture_output=True, text=True, timeout=kw.get("timeout"))
     if argv[0] == "scp":
-        src, dst = argv[-2].split(":", 1)[1], argv[-1]
+        src, dst = argv[-2], argv[-1]
+        src, dst = (src, dst.split(":", 1)[1]) if dst.startswith("box:") else (src.split(":", 1)[1], dst)
         if not Path(src).exists():
             return subprocess.CompletedProcess(argv, 1, "", f"no {src}")
         (shutil.copytree if Path(src).is_dir() else shutil.copy)(src, dst)
@@ -111,3 +112,62 @@ def test_the_leak_scan_names_what_it_found():
     hits = mle.leak_scan('curl https://www.kaggle.com/competitions/toy/data; cat ~/mle-data/toy/prepared/private/test.csv')
     assert {h["why"] for h in hits} == {"the competition's data page", "MLE-bench's private answers"}
     assert mle.leak_scan("pip install lightgbm && python train.py") == []
+
+
+def test_an_arm_names_a_harness_version_and_samples(box, tmp_path):
+    import json
+    from openlab.harness import versions
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "openlab.toml").write_text("")
+    src = tmp_path / "cand"
+    shutil.copytree(versions.DEFAULT, src, ignore=shutil.ignore_patterns("__pycache__"))
+    (src / "common.md").write_text((src / "common.md").read_text() + "- one more line\n")
+    sha = versions.install(ws, src)["sha"]
+    assert mle.parse_arm(f"openlab@{sha[:8]}*3", ws) == {"spec": f"openlab@{sha[:12]}*3", "kind": "openlab",
+                                                         "harness": sha, "n": 3, "label": f"openlab-{sha[:12]}x3"}
+    for bad in ("bare@abcdef12", "openlab*0", "nope"):
+        with pytest.raises(ValueError):
+            mle.parse_arm(bad, ws)
+    mle.prepare(box, "toy")
+    j = mle.job(box, "toy", f"openlab@{sha[:8]}", 0, hours=1, usd=6, root=ws)
+    d = Path(j["dir"])
+    assert (d / ".openlab" / "harness" / "active").read_text() == sha and j["harness"] == sha
+    assert (d / ".openlab" / "harness" / "versions" / sha / "common.md").read_text().endswith("one more line\n")
+    out = mle.ab(box, ["toy"], arms=("openlab*2",), seeds=1, hours=1, usd=6, poll_every=0, log=lambda s: None,
+                 root=ws)
+    assert len(out) == 2 and {r["sample"] for r in out} == {0, 1} and all(r["usd"] == 3.0 for r in out)
+    assert "validation.json" in (Path(mle.jobs()[out[0]["id"]]["dir"]) / "TASK.md").read_text()
+    rep = mle.report()
+    assert rep["openlab*2"]["runs"] == 1 and rep["openlab*2"]["usd"] == 3.0 and rep["openlab*2"]["oracle_medal"] == 100
+
+
+def test_best_of_n_picks_by_the_samples_own_validation_never_the_grade():
+    rows = [{"competition": "c", "arm": "openlab*2", "seed": 0, "n": 2, "sample": k, "any_medal": m,
+             "validation": {"score": v, "higher_is_better": False}, "spent": {"usd": 1}}
+            for k, m, v in ((0, True, 0.9), (1, False, 0.2))]
+    (one,) = mle.select(rows)
+    assert one["selected"] == 1 and not one["any_medal"] and one["oracle_medal"] and one["spent"]["usd"] == 2
+
+
+def test_accept_reads_the_graded_rows_and_records_its_verdict(box, tmp_path):
+    from openlab.agents.store import Store
+    from openlab.harness import evaluate, versions
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "openlab.toml").write_text("")
+    src = tmp_path / "cand"
+    shutil.copytree(versions.DEFAULT, src, ignore=shutil.ignore_patterns("__pycache__"))
+    (src / "common.md").write_text((src / "common.md").read_text() + "- one more line\n")
+    sha = versions.install(ws, src)["sha"]
+    evaluate.fixed_pools(mle.bench_dir() / "pools.json", ["a", "b"], private=1.0)
+    for arm, medals in (("openlab", [(1, 0), (0, 0), (1, 0)]), (f"openlab@{sha[:12]}", [(1, 1), (1, 1), (1, 1)])):
+        for s, ms in enumerate(medals):
+            for c, m in zip("ab", ms):
+                mle._append("results.jsonl", {"competition": c, "arm": arm, "seed": s, "any_medal": bool(m),
+                                              "valid": True, "spent": {"usd": 1}})
+    out = mle.accept_cli("openlab", f"openlab@{sha[:8]}", traps={"traps": {"traps": [{"trap": "x", "caught": True}]}},
+                         root=ws)
+    assert out["delta"] > out["band"] > 0 and out["accepted"], out["reasons"]
+    ev = Store(ws).events("harness", n=5, kinds=("harness_eval",))[-1]
+    assert ev["payload"]["accepted"] and ev["payload"]["usd"] == 6

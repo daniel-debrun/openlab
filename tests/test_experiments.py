@@ -304,7 +304,8 @@ def test_a_job_runs_only_at_its_minute_once_and_counts_passes_to_the_end(lab, fa
     call = spawned[0]
     assert call["role"] == "reviewer" and call["study"] == "tender" and call["budget"] == {
         "usd": 5.0, "minutes": 45.0, "turns": 80}
-    assert "You are a reviewer" in call["prompt"] and "Write the conclusion." in call["prompt"]
+    assert "Write the conclusion." in call["prompt"]
+    assert "You are a reviewer" not in call["prompt"]               # the role's prompt is in its brief, once
     assert f"record {r['run']}; output {run.payload['registry_run']}" in call["prompt"]
     assert I.output(ws, run.payload["registry_run"])["exit"] == 0                  # the output id reads back
     assert r["run"] in call["prompt"] and "experiment_react" in call["prompt"] and "openlab_agent_plan" in call["prompt"]

@@ -278,6 +278,8 @@ class CodexStream:
 def command(root: Path, agent: dict, d: Path) -> list:
     launch = json.loads((d / "launch.json").read_text()) if (d / "launch.json").exists() else {}
     prompt, brief_text = (d / "prompt.txt").read_text(), (d / "brief.txt").read_text()
+    if (d / "allocation.txt").is_file():                # where its work runs (openlab.nodes.alloc.brief)
+        brief_text += "\n\n" + (d / "allocation.txt").read_text()
     if agent["cli"] == "codex":
         exe = os.environ.get("OPENLAB_CODEX_BIN") or shutil.which("codex") or "codex"
         env = {"OPENLAB_AGENT": agent["id"], "OPENLAB_WORKSPACE": str(root)}
@@ -403,14 +405,109 @@ class Supervisor:
                                 "end with work in progress (a live run's result would go unreported): at the limit openlab pauses you "
                                 "and asks the person for more.", "openlab")
 
+    def _allocation(self, launch: dict) -> Optional[dict]:
+        """The allocation this agent works in (its own, requested at spawn, or its parent's it shares), once it runs;
+        waiting meanwhile (status waiting, the reason as an event when it changes). None or a row not running when
+        it could not be had (refused, its Slurm job gone, stopped by a person while it waited)."""
+        from ..nodes import alloc as A
+        deadline, row = time.monotonic() + 60, None
+        while row is None and time.monotonic() < deadline:
+            row = A.of_agent(self.id, self.root)
+            if row is None:
+                time.sleep(0.5)
+        if row is None:
+            return None
+        if row["state"] != "running":
+            self.store.set_status(self.id, "waiting", only_from=("running",))
+            self.store.event(self.id, "allocation_wait", summary=row["why"] or row["state"],
+                             payload={"allocation": row["id"]})
+            last = [row["why"]]
+
+            def on_wait(r):
+                if r["why"] != last[0]:
+                    last[0] = r["why"]
+                    self.store.event(self.id, "allocation_wait", summary=r["why"], payload={"allocation": r["id"]})
+
+            def stopped() -> bool:
+                a = self.store.get(self.id) or {}
+                if a.get("control") == "stop" and not self.stopping:
+                    self.stopping = f"stopped by a person: {a.get('control_reason') or 'no reason given'}"
+                return bool(self.stopping)
+
+            row = A.acquire(row["id"], poll=float(os.environ.get("OPENLAB_ALLOC_POLL") or 5), on_wait=on_wait,
+                            stopped=stopped)
+            self.store.set_status(self.id, "running", only_from=("waiting",))
+        if row is not None and row["state"] == "running":
+            self.store.event(self.id, "allocation_start", summary=A.describe(row),
+                             payload={k: row[k] for k in ("id", "node", "backend", "host", "cores", "memory_gb", "gpus",
+                                                          "gpu_list", "gpu_names", "ref", "partition")})
+            (self.dir / "allocation.txt").write_text(A.brief(row))
+        return row
+
     def run(self) -> int:
         signal.signal(signal.SIGTERM, lambda *_: self.stop("the supervisor was terminated"))
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        launch = json.loads((self.dir / "launch.json").read_text()) if (self.dir / "launch.json").exists() else {}
+        held = None
+        if launch.get("resources") or launch.get("share"):
+            try:
+                held = self._allocation(launch)
+            except Exception as e:                                  # noqa: BLE001 -- ends the agent, said why
+                held = {"state": "failed", "why": f"{type(e).__name__}: {e}"}
+            if held is None or held["state"] != "running":
+                return self._unplaced(held)
+        self.held = held
+        try:
+            return self._run(held)
+        finally:
+            self._release()
+
+    def _unplaced(self, row: Optional[dict]) -> int:
+        """End an agent whose allocation could not be had, saying why."""
+        status = "stopped" if self.stopping else "failed"
+        why = self.stopping or (row or {}).get("why") or "no allocation was recorded for it"
+        self.store.event(self.id, "end", summary=f"{status} before it started: no allocation ({why})",
+                         payload={"exit_code": None, "status": status, "reason": why, "usd": 0.0})
+        self.store.set_status(self.id, status)
+        self.store.notify("end", self.id, f"{self.id} {status}: it never got its allocation ({why})")
+        return 0
+
+    def _release(self) -> None:
+        """Let go of the allocation (once): before the final status, so a waiter sees it ended."""
+        held, self.held = getattr(self, "held", None), None
+        if held is None:
+            return
+        from ..nodes import alloc as A
+        try:
+            r = A.leave(held["id"], self.id)
+        except Exception as e:                                      # noqa: BLE001 -- the run has ended either way
+            print(f"supervisor: could not release {held['id']}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            return
+        if r is not None and r["state"] == "ended":
+            self.store.event(self.id, "allocation_end", summary=f"{r['id']} on {r['node']} ended: "
+                             f"{r['usage'].get('hours', 0):.2f} h, {r['usage'].get('gpu_hours', 0):.2f} GPU-hours",
+                             payload={"allocation": r["id"], "node": r["node"], **(r["usage"] or {})})
+
+    def _run(self, held: Optional[dict]) -> int:
         a = self.agent
         cmd = command(self.root, a, self.dir)
-        (self.dir / "command.json").write_text(json.dumps(cmd))
         env = {**os.environ, "OPENLAB_AGENT": self.id, "OPENLAB_WORKSPACE": str(self.root),
                "OPENLAB_AGENT_TOKEN": os.environ.get("OPENLAB_AGENT_TOKEN") or self.store.token(self.id)}
+        if held is not None:
+            from ..nodes import alloc as A
+            aenv, prefix = A.launch(held)
+            env.update(aenv)
+            cmd = prefix + cmd
+            here = Path(sys.executable).parent              # `openlab node exec` from the agent's shell
+            if (here / "openlab").exists() and str(here) not in env.get("PATH", "").split(os.pathsep):
+                env["PATH"] = f"{here}{os.pathsep}{env.get('PATH', '')}"
+            mcp = self.dir / "mcp.json"
+            if mcp.is_file():                               # the MCP server's runs are admitted within it too
+                cfg = json.loads(mcp.read_text())
+                for srv in (cfg.get("mcpServers") or {}).values():
+                    srv.setdefault("env", {}).update(aenv)
+                mcp.write_text(json.dumps(cfg, indent=1))
+        (self.dir / "command.json").write_text(json.dumps(cmd))
         parser = CodexStream(self.store, a) if a["cli"] == "codex" else ClaudeStream(self.store, a)
         try:
             err = open(self.dir / "stderr.log", "ab")
@@ -448,11 +545,19 @@ class Supervisor:
             if c["kind"] == "claude-subagent":
                 self.store.set_status(c["id"], status, only_from=("running", "idle", "waiting", "paused"))
         self.store.update(self.id, exit_code=rc)
+        self._release()
         self.store.set_status(self.id, status)                      # last: a waiter sees the whole story
         a = self.store.get(self.id) or {}
         pending = len(self.store.inbox("pending", agent=self.id))
         self.store.notify("end", self.id, f"{self.id} ({a.get('role') or 'agent'}) {status}, {money}"
                           + (f"; {pending} inbox item(s) wait for you" if pending else ""))
+        try:                                                        # [harness] reflect: a reflector reads the run
+            from ..harness.reflect import after
+            r = after(self.root, self.id)
+            if r:
+                self.store.event(self.id, "note", summary=f"reflector {r['reflector']} reads this run")
+        except Exception as e:                                      # noqa: BLE001 -- the run has ended either way
+            print(f"supervisor: no reflection: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         return 0
 
 

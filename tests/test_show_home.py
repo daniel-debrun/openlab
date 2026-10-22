@@ -34,20 +34,37 @@ def test_a_closed_tab_is_hidden_and_resume_opens_it(tmp_path):
     assert show_home.read(tmp_path) == {"closed": [], "machines": []}
 
 
-def test_machines_are_declared_by_the_person_and_read_safely(tmp_path):
+def test_machines_are_nodes_the_person_adds_and_read_safely(tmp_path, monkeypatch):
+    box = tmp_path / "box"
+    box.mkdir()
+    monkeypatch.setenv("OPENLAB_BOX_DIR", str(box))
+    (box / "box.toml").write_text("# the person's\n[box]\nkeep_cores = 1\n\n[[node]]\nname = \"cluster\"\n"
+                                  "backend = \"slurm\"\nhost = \"login\"   # by hand\n")
+    (tmp_path / show_home.FILE).write_text('{"machines": [{"name": "old-box", "ssh": "old-box"}]}')
     app = server.create_app(str(tmp_path), token="tok")
     P = {**H, "x-openlab-reviewer": app.state.reviewer}
     with TestClient(app) as c:
-        add = {"add": {"name": "gpu-box", "ssh": "gpu-box", "port": 47956}}
+        add = {"add": {"name": "gpu-box", "ssh": "root@gpu-box", "port": 47956, "workdir": "/root/work",
+                       "unsandboxed": True}}
         assert c.post("/api/machines", headers=H, json=add).status_code == 403      # a person's edit
         assert c.post("/api/machines", headers=P, json=add).json()["ok"]
+        text = (box / "box.toml").read_text()
+        assert 'name = "gpu-box"\nhost = "root@gpu-box"\nport = 47956\nworkdir = "/root/work"\nunsandboxed = "ok"' in text
+        assert text.startswith("# the person's") and "# by hand" in text
         for bad in ({"name": "x", "ssh": "-oProxyCommand=sh"}, {"name": "local", "ssh": "h"}, {"name": "gpu-box", "ssh": "h"},
-                    {"name": "y", "ssh": "h; rm -rf /"}, {"name": "z", "ssh": "h", "port": 70000}):
+                    {"name": "cluster", "ssh": "h"}, {"name": "y", "ssh": "h; rm -rf /"}, {"name": "z", "ssh": "h", "port": 70000},
+                    {"name": "Big.Box", "ssh": "h"}, {"name": "w", "ssh": "h", "workdir": "$(rm -rf ~)"}):
             assert c.post("/api/machines", headers=P, json={"add": bad}).status_code == 400, bad
         ms = c.get("/api/machines", headers=H).json()["result"]
-        assert [(m["name"], m["where"]) for m in ms] == [("local", "local"), ("gpu-box", "remote")]
-        assert "queue" in ms[0] and "queue" not in ms[1]
-        assert c.post("/api/machines", headers=P, json={"remove": "gpu-box"}).json()["result"] == []
+        assert [(m["name"], m["where"]) for m in ms] == [("local", "local"), ("cluster", "slurm"), ("gpu-box", "ssh"),
+                                                          ("old-box", "watch")]
+        assert "queue" in ms[0] and "queue" not in ms[1] and "allocations_waiting" in ms[0]["queue"]
+        assert all(m["allocations"] == [] for m in ms)
+        left = c.post("/api/machines", headers=P, json={"remove": "gpu-box"}).json()["result"]
+        assert [m["name"] for m in left] == ["cluster", "old-box"]
+        assert "gpu-box" not in (box / "box.toml").read_text() and "# by hand" in (box / "box.toml").read_text()
+        assert [m["name"] for m in c.post("/api/machines", headers=P, json={"remove": "old-box"}).json()["result"]] \
+            == ["cluster"]
 
 
 def test_usage_is_parsed_from_the_probe():

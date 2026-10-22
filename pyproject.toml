@@ -43,12 +43,13 @@ openlab = "openlab.__main__:main"
 openlab-mcp = "openlab.mcp_server:main"
 
 [tool.setuptools]
-packages = ["openlab", "openlab.engine", "openlab.agents", "openlab.study", "openlab.study.paper", "openlab.app", "openlab.sources", "openlab.benchmark"]
+packages = ["openlab", "openlab.engine", "openlab.agents", "openlab.study", "openlab.study.paper", "openlab.app", "openlab.sources", "openlab.benchmark", "openlab.harness", "openlab.nodes"]
 
 [tool.setuptools.package-data]
 "openlab.study" = ["templates/**/*"]
 "openlab.study.paper" = ["templates/*"]
 "openlab" = ["AGENTS.md", "AGENTS_REFERENCE.md"]
+"openlab.harness" = ["default/*", "default/**/*", "meta/*"]
 "openlab.app" = ["static/*", "static/**/*", "show/*"]
 
 [tool.pytest.ini_options]

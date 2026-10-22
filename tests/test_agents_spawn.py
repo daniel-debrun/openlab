@@ -10,6 +10,7 @@ import time
 import pytest
 
 from agents_fake import final, install, wait
+from openlab.agents.claude_setup import ROLES
 from openlab.agents.spawn import AgentError, spawn
 from openlab.agents.store import Store
 
@@ -59,7 +60,9 @@ def test_spawn_parses_the_stream_into_events_and_spend(ws, tmp_path):
     mcp = json.loads(open(argv[argv.index("--mcp-config") + 1]).read())
     assert mcp["mcpServers"]["openlab"]["env"]["OPENLAB_AGENT"] == a["id"]
     brief = argv[argv.index("--append-system-prompt") + 1]
-    assert a["id"] in brief and "does x predict y?" in brief and len(brief.split()) < 300
+    role = ROLES["lead"][1]                                             # a role's prompt follows the brief
+    assert a["id"] in brief and "does x predict y?" in brief and brief.endswith(role)
+    assert len(brief.split()) - len(role.split()) < 300
     settings = json.loads(open(argv[argv.index("--settings") + 1]).read())
     from openlab.agents.claude_setup import is_hook_command
     cmd = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]      # either launcher form, PATH-dependent

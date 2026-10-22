@@ -7,6 +7,7 @@
     openlab instrument register|list|show|verify|run|runs  registered programs that act outside the sandbox
     openlab experiment new|list|status|start|kill|...  a study's instruments on a schedule, then a conclusion
     openlab guide | tools | tool NAME     the tools your agent has, from a shell
+    openlab harness show|use|signals|lessons|refine|...  the texts agents are briefed with, as versions
     openlab doctor [--json]               what works here, and the one-line fixes
     openlab verify FILE.sig.json          check a signed file offline
 
@@ -53,6 +54,8 @@ COMMANDS: dict = {
                                        "which keeps the answers: `openlab bench mle --help`"),
     "box": ("openlab.boxcli:main", "this machine as openlab uses it (cores, memory, GPUs, the schedule in box.toml) and "
                                   "its queue of runs: `openlab box queue`"),
+    "node": ("openlab.nodes.cli:main", "the nodes openlab places workers on (this machine, box.toml's [[node]]s), "
+                                       "their allocations, and `openlab node exec -- CMD` inside one"),
     "instrument": ("openlab.study.instrument_cli:main", "the workspace's instruments, registered immutable programs "
                                                        "that measure or act outside the sandbox: register (a person's), "
                                                        "list, show, verify, run, runs"),
@@ -63,6 +66,8 @@ COMMANDS: dict = {
     "verify": ("openlab.__main__:verify_main", "check a signed file (FILE.sig.json) offline"),
     "hook": ("openlab.agents.cli:main+", "a Claude Code hook (stdin JSON; written by openlab init --claude)"),
     "person": ("openlab.agents.cli:main+", "your person key: init, show, rotate, pin (it signs every person act)"),
+    "harness": ("openlab.harness.cli:main", "the texts openlab briefs its agents with: versions you make active, the "
+                                           "runs' probe signals, harness lessons, refinement (openlab harness --help)"),
 }
 
 

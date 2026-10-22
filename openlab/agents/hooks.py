@@ -57,6 +57,9 @@ PERSON_VERBS = [
     (re.compile(r"\bexperiment\s+start\b|\bexperiments\.start\s*\("),
      "starting an experiment (openlab experiment start)"),
     (re.compile(r"\bexperiment\s+job\b[^;|&\n]*--now\b"), "running an experiment's job off schedule (experiment job --now)"),
+    (re.compile(r"\bharness\s+(use|rollback|retire|refine|reflect)\b|\bversions\.(use|rollback)\s*\(|\blessons\.(retire|decide)\s*\("),
+     "changing the active harness, retiring a harness lesson, or a reflection or refinement that spends (openlab "
+     "harness use|rollback|retire|reflect|refine)"),
 ]
 #: an openlab command run under another HOME or config dir (a person key of the agent's own) or with OPENLAB_* changed
 OPENLAB_ENV = re.compile(r"(^|[\s;&|(`'\"])(export\s+|declare\s+-x\s+|env\s+(-\S+\s+)*)?(HOME|XDG_CONFIG_HOME|OPENLAB_\w+)="
@@ -1055,6 +1058,28 @@ def denied(root, tool: str, inp: dict) -> Optional[str]:
     return None
 
 
+#: programs that reach another machine or a scheduler directly: refused to a spawned agent, whose work on another
+#: machine goes through its allocation (`openlab node exec`), so it stays inside its budget, its node and the record
+REMOTE_PROGRAMS = frozenset(("ssh", "scp", "sftp", "mosh", "autossh", "sshpass", "sbatch", "srun", "salloc", "scancel",
+                             "sky", "dstack", "kubectl", "nomad"))
+_REMOTE_SPEC = re.compile(r"^[A-Za-z0-9_.@-]+:(?!//)")
+
+
+def remote_command(cmd: str) -> Optional[str]:
+    """The program in this shell line that reaches another machine or a scheduler (ssh, scp, sbatch, srun, rsync to
+    host:path, ...), or None."""
+    try:
+        found = [(prog, [w["value"] for w in args]) for prog, args in (_program(c) for c in _parse(cmd))]
+    except Exception:                                               # noqa: BLE001 -- a line the reader cannot follow
+        found = [(w, []) for w in _command_words(cmd)]
+    for prog, args in found:
+        if prog in REMOTE_PROGRAMS:
+            return prog
+        if prog == "rsync" and any(_REMOTE_SPEC.match(a) for a in args if not a.startswith("-")):
+            return "rsync to another machine"
+    return None
+
+
 def deny(reason: str) -> dict:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                    "permissionDecisionReason": reason}}
@@ -1243,6 +1268,13 @@ def handle(event: str, data: dict) -> Optional[dict]:
             store.event(a["id"], "refusal", tool=tool, summary=f"{tool}: matches [agents] deny {hit!r}")
             return deny(f"openlab refused this: it matches a pattern this workspace denies ({hit!r} in openlab.toml "
                         "[agents] deny). Do not retry it in another form; carry on without it.")
+        far = remote_command(str(inp.get("command") or "")) if supervised and tool == "Bash" else None
+        if far:
+            store.event(a["id"], "refusal", tool=tool, summary=f"Bash: {far} reaches another machine directly")
+            return deny(f"openlab refused this: {far} reaches another machine or a scheduler directly, outside your "
+                        "allocation, its budget and the record. Run work on your allocation's node with `openlab node "
+                        "exec -- COMMAND` (a worker spawned with resources has one); for a machine you do not have, "
+                        "openlab_agent_request(kind='compute').")
         if tool in SUB_TOOLS and budgeted(store, a):
             store.event(a["id"], "refusal", tool=tool, summary=f"{tool}: a native sub-agent of a budgeted agent; "
                         "delegate with openlab_agent_spawn")

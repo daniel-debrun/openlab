@@ -21,6 +21,13 @@ and the rules), and the agent spawned under openlab's supervisor (budget in $ an
 `openlab` runs `openlab init --claude` there (the MCP tools, the hooks, the record) and its TASK.md asks the agent to work
 through openlab; `bare` has neither. Both write submission/submission.csv.
 
+An arm may name a harness version and a number of samples (`parse_arm`): `openlab@<sha>` ships that stored version of
+this workspace (openlab.harness.versions) to the job and makes it active there; `openlab@<sha>*3` is best-of-3 at
+matched dollars: three samples, each with a third of the budget, each asked to write its own validation score to
+submission/validation.json, and the arm's answer for the seed is the sample with the best one (`select`; never the
+grade, which would be choosing on the test set). The grade of the best sample is kept beside it (`oracle_medal`), as a
+bound only. openlab.harness.evaluate gates a candidate harness on these rows (`openlab bench mle accept`).
+
 grade: the submission comes here and is graded against the answers with MLE-bench's own grader, in its own venv
 (OPENLAB_MLEBENCH_PYTHON, default <bench dir>/venv/bin/python), then ranked on the leaderboard. The agent's log is
 scanned for leak attempts (Kaggle downloads, the competition's raw data, MLE-bench's private paths), in both arms.
@@ -81,6 +88,12 @@ class Box:
         if check and p.returncode:
             raise RuntimeError(f"on {self.host}: {script[:120]}...\n{(p.stderr or p.stdout)[-800:]}")
         return p.stdout
+
+    def put(self, local, remote: str) -> None:
+        p = self._run(["scp", "-q", "-r", "-o", "ClearAllForwardings=yes", "-o", "LogLevel=ERROR", str(local),
+                       f"{self.host}:{remote}"])
+        if p.returncode:
+            raise RuntimeError(f"scp {local} {self.host}:{remote}: {(p.stderr or p.stdout)[-400:]}")
 
     def fetch(self, remote: str, local: Path) -> None:
         local.parent.mkdir(parents=True, exist_ok=True)
@@ -184,24 +197,57 @@ your search honest and to learn as you go:
 """
 
 
-def task_text(comp: str, arm: str, description: str, hours: float, usd: float) -> str:
+SAMPLE = """- Before you end, write `submission/validation.json`: {{"score": <your final model's score on your own
+  validation split>, "higher_is_better": true or false}}. Your submission competes with other attempts on that score.
+"""
+
+
+def parse_arm(spec: str, root=None) -> dict:
+    """An arm: `bare`, `openlab`, `openlab@<harness sha or prefix>`, each optionally `*N` (best-of-N samples at
+    matched dollars). {spec (canonical), kind, harness (full sha or ""), n, label (safe in a path)}."""
+    m = re.fullmatch(r"(bare|openlab)(?:@([0-9a-f]{6,64}|default))?(?:\*(\d+))?", (spec or "").strip())
+    if not m or (m.group(1) == "bare" and m.group(2)):
+        raise ValueError(f"an arm is bare, openlab or openlab@<harness sha>, each optionally *N; not {spec!r}")
+    kind, ref, n = m.group(1), m.group(2) or "", int(m.group(3) or 1)
+    if n < 1 or n > 16:
+        raise ValueError("best-of-N takes N from 1 to 16")
+    sha = ""
+    if ref and ref != "default":
+        from ..agents.store import root_of
+        from ..harness.versions import resolve
+        sha = resolve(root or root_of(), ref)
+    canon = kind + (f"@{sha[:12]}" if sha else "") + (f"*{n}" if n > 1 else "")
+    return {"spec": canon, "kind": kind, "harness": sha, "n": n, "label": canon.replace("@", "-").replace("*", "x")}
+
+
+def task_text(comp: str, arm: str, description: str, hours: float, usd: float, sampled: bool = False) -> str:
     head = f"# Task: {comp}\n\nYou are competing in a Kaggle competition, offline. Here is its description.\n\n"
-    return head + description.strip() + "\n\n" + RULES.format(hours=hours, usd=usd) + (
+    return head + description.strip() + "\n\n" + RULES.format(hours=hours, usd=usd) + (SAMPLE if sampled else "") + (
         "\n" + OPENLAB_WAY if arm == "openlab" else "")
 
 
-def job(box: Box, comp: str, arm: str, seed: int, hours: float, usd: float, model: str = "") -> dict:
-    """Make the job's directory on the box and spawn its agent; returns the job's state."""
-    if arm not in ARMS:
-        raise ValueError(f"arm is one of {', '.join(ARMS)}")
-    jid = f"{comp}--{arm}--s{seed}--{uuid.uuid4().hex[:6]}"
+def job(box: Box, comp: str, arm: str, seed: int, hours: float, usd: float, model: str = "", sample: int = 0,
+        root=None) -> dict:
+    """Make the job's directory on the box and spawn its agent; returns the job's state. `usd` is the arm's budget
+    for the seed: a best-of-N arm's sample gets usd/N."""
+    a = parse_arm(arm, root)
+    arm, usd = a["spec"], round(usd / a["n"], 4)
+    jid = f"{comp}--{a['label']}--s{seed}" + (f"k{sample}" if a["n"] > 1 else "") + f"--{uuid.uuid4().hex[:6]}"
     d = f"{box.jobs}/{jid}"
     desc = box.sh(f"cat {box.repo}/mlebench/competitions/{shlex.quote(comp)}/description.md")
-    task = task_text(comp, arm, desc, hours, usd)
+    task = task_text(comp, a["kind"], desc, hours, usd, sampled=a["n"] > 1)
+    ship = ""
+    if a["harness"]:                                    # the stored version, made active in the job's workspace
+        from ..agents.store import root_of
+        from ..harness.versions import path
+        box.sh(f"mkdir -p {d}")
+        box.put(path(root or root_of(), a["harness"]), f"{d}/.harness-{a['harness']}")
+        ship = (f"mkdir -p .openlab/harness/versions && mv .harness-{a['harness']} "
+                f".openlab/harness/versions/{a['harness']} && printf %s {a['harness']} > .openlab/harness/active && ")
     deny = ", ".join(json.dumps(rx.pattern) for rx, _ in LEAKS)
-    init = (f"{shlex.quote(box.openlab)} init --claude >/dev/null && "
+    init = (f"{shlex.quote(box.openlab)} init --claude >/dev/null && {ship}"
             f"printf '%s\\n' '' '[agents]' 'cap_usd = {usd}' 'cap_minutes = {int(hours * 60) + 30}' "
-            f"'deny = [{deny}]' >> openlab.toml && " if arm == "openlab" else
+            f"'deny = [{deny}]' >> openlab.toml && " if a["kind"] == "openlab" else
             f"printf '%s\\n' '[agents]' 'cap_usd = {usd}' 'cap_minutes = {int(hours * 60) + 30}' > openlab.toml && ")
     spawn = (f"{shlex.quote(box.openlab)} agent spawn \"$(cat TASK.md)\" --role bench --cli claude "
              f"--budget-usd {usd} --minutes {int(hours * 60)} --turns 100000"
@@ -213,7 +259,9 @@ OPENLAB_TASK
                      {init}{spawn}""")
     agent = (re.search(r"spawned (\S+)", out) or [None, ""])[1]
     state = {"id": jid, "competition": comp, "arm": arm, "seed": seed, "hours": hours, "usd": usd, "dir": d,
-             "agent": agent, "started": time.time(), "state": "running", "spawn": out.strip()[-300:]}
+             "agent": agent, "started": time.time(), "state": "running", "spawn": out.strip()[-300:],
+             **({"harness": a["harness"]} if a["harness"] else {}), **({"sample": sample, "n": a["n"]}
+                                                                       if a["n"] > 1 else {})}
     _append("jobs.jsonl", state)
     return state
 
@@ -286,7 +334,15 @@ def grade(box: Box, j: dict) -> dict:
         spent = json.loads(spend[:spend.rindex("}") + 1]).get("spent", {})
     except ValueError:
         spent = {}
+    val = None
+    if j.get("n", 1) > 1:
+        try:
+            val = json.loads(box.sh(f"cat {j['dir']}/submission/validation.json", check=False) or "null")
+        except ValueError:
+            val = None
     row = {**{k: j[k] for k in ("id", "competition", "arm", "seed", "hours", "usd")}, **g,
+           **{k: j[k] for k in ("harness", "sample", "n") if k in j},
+           **({"validation": val} if isinstance(val, dict) else {}),
            "leaks": leak_scan(log), "spent": spent, "graded": time.time()}
     _append("results.jsonl", row)
     _append("jobs.jsonl", {"id": j["id"], "state": "graded"})
@@ -295,21 +351,23 @@ def grade(box: Box, j: dict) -> dict:
 
 # --- the A/B ------------------------------------------------------------------------------------------------------
 def ab(box: Box, competitions: list, arms=ARMS, seeds: int = 3, hours: float = 6, usd: float = 20, parallel: int = 2,
-       poll_every: float = 60, model: str = "", log=print) -> list:
-    """Run every (competition, arm, seed) that has no graded result yet, `parallel` at a time; grade each as it
-    ends. Resumable: graded and running jobs are picked up from jobs.jsonl."""
-    done = {(r["competition"], r["arm"], r["seed"]) for r in _rows("results.jsonl")}
-    todo = [(c, a, s) for s in range(seeds) for c in competitions for a in arms if (c, a, s) not in done]
-    running = [j for j in jobs().values() if j.get("state") == "running"
-               and (j["competition"], j["arm"], j["seed"]) in set(todo)]
-    taken = {(j["competition"], j["arm"], j["seed"]) for j in running}
+       poll_every: float = 60, model: str = "", log=print, root=None) -> list:
+    """Run every (competition, arm, seed, sample) that has no graded result yet, `parallel` at a time; grade each as
+    it ends. Resumable: graded and running jobs are picked up from jobs.jsonl. `arms`: specs (parse_arm)."""
+    parsed = [parse_arm(a, root) for a in arms]
+    key = lambda r: (r["competition"], r["arm"], r["seed"], r.get("sample", 0))          # noqa: E731
+    done = {key(r) for r in _rows("results.jsonl")}
+    todo = [(c, a["spec"], s, k) for s in range(seeds) for c in competitions for a in parsed for k in range(a["n"])
+            if (c, a["spec"], s, k) not in done]
+    running = [j for j in jobs().values() if j.get("state") == "running" and key(j) in set(todo)]
+    taken = {key(j) for j in running}
     queue = [t for t in todo if t not in taken]
     graded = []
     while queue or running:
         while queue and len(running) < parallel:
-            c, a, s = queue.pop(0)
-            log(f"start {c} {a} seed {s}")
-            running.append(job(box, c, a, s, hours, usd, model))
+            c, a, s, k = queue.pop(0)
+            log(f"start {c} {a} seed {s}" + (f" sample {k}" if "*" in a else ""))
+            running.append(job(box, c, a, s, hours, usd, model, sample=k, root=root))
         time.sleep(poll_every)
         for j in list(running):
             st = poll(box, j)
@@ -325,11 +383,38 @@ def ab(box: Box, competitions: list, arms=ARMS, seeds: int = 3, hours: float = 6
     return graded
 
 
+def select(rows: list) -> list:
+    """The rows with each best-of-N arm's samples of a (competition, seed) folded into one: the sample whose own
+    validation score is best (the first sample when none wrote one), its spend the samples' total, and
+    `oracle_medal` (a medal among any sample: a bound, never the arm's answer)."""
+    out, groups = [], {}
+    for r in rows:
+        if r.get("n", 1) > 1:
+            groups.setdefault((r["competition"], r["arm"], r["seed"]), []).append(r)
+        else:
+            out.append(r)
+    for _, rs in sorted(groups.items()):
+        rs = sorted(rs, key=lambda r: r.get("sample", 0))
+
+        def own(r):
+            v = r.get("validation") or {}
+            s = v.get("score")
+            if not isinstance(s, (int, float)) or isinstance(s, bool):
+                return None
+            return s if v.get("higher_is_better", True) else -s
+        scored = [r for r in rs if own(r) is not None]
+        pick = max(scored, key=own) if scored else rs[0]
+        usd = sum(float((r.get("spent") or {}).get("usd") or 0) for r in rs)
+        out.append({**pick, "spent": {**(pick.get("spent") or {}), "usd": round(usd, 4)}, "samples": len(rs),
+                    "oracle_medal": any(r.get("any_medal") for r in rs), "selected": pick.get("sample", 0)})
+    return out
+
+
 def report(rows: list | None = None) -> dict:
     """Per arm: medal rate (mean over seeds of the per-seed medal rate, ± its standard error), valid submissions,
-    above-median rate, leak attempts, spend."""
+    above-median rate, leak attempts, spend; a best-of-N arm counts its selected samples (`select`)."""
     import statistics
-    rows = _rows("results.jsonl") if rows is None else rows
+    rows = select(_rows("results.jsonl") if rows is None else rows)
     out = {}
     for arm in sorted({r["arm"] for r in rows}):
         rs = [r for r in rows if r["arm"] == arm]
@@ -345,11 +430,43 @@ def report(rows: list | None = None) -> dict:
                     "above_median": round(100 * sum(bool(r.get("above_median")) for r in rs) / len(rs), 1),
                     "leak_attempts": sum(len(r.get("leaks", [])) for r in rs),
                     "runs_with_leak_attempts": sum(1 for r in rs if r.get("leaks")),
-                    "usd": round(sum(float((r.get("spent") or {}).get("usd") or 0) for r in rs), 2)}
+                    "usd": round(sum(float((r.get("spent") or {}).get("usd") or 0) for r in rs), 2),
+                    **({"oracle_medal": round(100 * sum(bool(r.get("oracle_medal")) for r in rs) / len(rs), 1)}
+                       if any("oracle_medal" in r for r in rs) else {})}
     return out
 
 
 # --- the command -------------------------------------------------------------------------------------------------
+def accept_cli(baseline: str, candidate: str, bestofn: str = "", traps=None, lesson: str = "",
+               best_so_far=None, edit_cap: int = 3, root=None) -> dict:
+    """openlab.harness.evaluate.accept on this machine's graded rows and pools, with the edit count and the growth of
+    the always-on text read from the two arms' harness versions; the verdict is recorded on the workspace's control
+    store (harness_eval), so cost per accepted edit counts the rejected ones too."""
+    from ..agents.store import Store, root_of
+    from ..harness import evaluate, versions
+    root = root or root_of()
+    pools = evaluate.fixed_pools(bench_dir() / "pools.json")
+    b, c = parse_arm(baseline, root), parse_arm(candidate, root)
+    hb, hc = versions.get(root, b["harness"]), versions.get(root, c["harness"])
+    growth = (len(hc.always_on) - len(hb.always_on)) / max(len(hb.always_on), 1)
+    edits = len(versions.changed(root, b["harness"], c["harness"]))
+    predicted = {}
+    if lesson:
+        from ..harness.lessons import get
+        predicted = get(root, lesson)["predicted"]
+    rows = [{**r, "task": r["competition"]} for r in select(_rows("results.jsonl"))]
+    out = evaluate.accept(rows, b["spec"], c["spec"], pools, bestofn=parse_arm(bestofn, root)["spec"] if bestofn else "",
+                          best_so_far=best_so_far, predicted=predicted, growth=growth, edits=edits, edit_cap=edit_cap,
+                          traps=traps)
+    usd = sum(float((r.get("spent") or {}).get("usd") or 0) for r in rows if r["arm"] == c["spec"])
+    Store(root).event(versions.AGENT, "harness_eval", summary=f"{c['spec']} over {b['spec']}: "
+                      + ("accepted" if out["accepted"] else "rejected: " + "; ".join(out["reasons"])),
+                      payload={"candidate": c["spec"], "harness": c["harness"], "baseline": b["spec"],
+                               "accepted": out["accepted"], "usd": round(usd, 4), "band": out["band"],
+                               "delta": out["delta"], "beats_bestofn": out["beats_bestofn"], "lesson": lesson})
+    return out
+
+
 def main(argv) -> int:
     import argparse
     p = argparse.ArgumentParser(prog="openlab bench mle", description="MLE-bench: the same agent with and without "
@@ -365,7 +482,7 @@ def main(argv) -> int:
     host(pr)
     jb = sub.add_parser("job", help="one run: a fresh directory on the box and an agent in it")
     jb.add_argument("competition")
-    jb.add_argument("--arm", required=True, choices=ARMS)
+    jb.add_argument("--arm", required=True, help="bare, openlab or openlab@<harness sha>, optionally *N")
     jb.add_argument("--seed", type=int, default=0)
     jb.add_argument("--hours", type=float, default=6)
     jb.add_argument("--usd", type=float, default=20)
@@ -378,17 +495,49 @@ def main(argv) -> int:
     host(gr)
     a = sub.add_parser("ab", help="every competition × arm × seed not graded yet, a few at a time")
     a.add_argument("--competitions", default="lite", help="lite, or a comma-separated list")
-    a.add_argument("--arms", default="bare,openlab")
+    a.add_argument("--arms", default="bare,openlab", help="comma-separated arms: bare, openlab, openlab@<harness "
+                   "sha>, each optionally *N (best-of-N at matched dollars)")
     a.add_argument("--seeds", type=int, default=3)
     a.add_argument("--hours", type=float, default=6)
     a.add_argument("--usd", type=float, default=20)
     a.add_argument("--parallel", type=int, default=2)
     a.add_argument("--model", default="")
     host(a)
-    sub.add_parser("report", help="medal rates, validity and leak attempts by arm")
+    rp = sub.add_parser("report", help="medal rates, validity and leak attempts by arm")
+    rp.add_argument("--out", default="", help="also write it to this file (e.g. bench/results/mle/<date>.json)")
+    po = sub.add_parser("pools", help="split the competitions once into a development and a private pool")
+    po.add_argument("--competitions", default="lite", help="lite, or a comma-separated list")
+    po.add_argument("--private", type=float, default=0.5, help="the private pool's share")
+    po.add_argument("--canary", default="", help="comma-separated competitions no honest run can medal on")
+    po.add_argument("--ood", default="", help="comma-separated tasks kept out of distribution")
+    ac = sub.add_parser("accept", help="whether a candidate harness arm is accepted over the baseline arm, on the "
+                        "private pool (openlab.harness.evaluate)")
+    ac.add_argument("--baseline", default="openlab")
+    ac.add_argument("--candidate", required=True, help="openlab@<harness sha>")
+    ac.add_argument("--bestofn", default="", help="the baseline at matched dollars, e.g. openlab*3")
+    ac.add_argument("--traps", default="", help="a bench.harness result (python -m bench.harness --suite traps)")
+    ac.add_argument("--lesson", default="", help="the harness lesson whose predictions it checks")
+    ac.add_argument("--best-so-far", type=float, default=None)
+    ac.add_argument("--edit-cap", type=int, default=3)
     args = p.parse_args(argv)
     if args.cmd == "report":
-        print(json.dumps(report(), indent=1))
+        rep = report()
+        if args.out:
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(json.dumps({"at": time.strftime("%Y-%m-%dT%H%M%SZ", time.gmtime()),
+                                                  "arms": rep}, indent=1), encoding="utf-8")
+        print(json.dumps(rep, indent=1))
+        return 0
+    if args.cmd == "pools":
+        from ..harness.evaluate import fixed_pools
+        comps = list(LITE) if args.competitions == "lite" else args.competitions.split(",")
+        split = lambda s: [x for x in s.split(",") if x]                                  # noqa: E731
+        print(json.dumps(fixed_pools(bench_dir() / "pools.json", comps, args.private, canaries=split(args.canary),
+                                     ood=split(args.ood)), indent=1))
+        return 0
+    if args.cmd == "accept":
+        print(json.dumps(accept_cli(args.baseline, args.candidate, args.bestofn, args.traps or None, args.lesson,
+                                    args.best_so_far, args.edit_cap), indent=1, default=str))
         return 0
     box = Box(args.host, args.openlab)
     if args.cmd == "doctor":
@@ -409,7 +558,8 @@ def main(argv) -> int:
         print(json.dumps(grade(box, jobs()[args.job]), indent=1, default=str))
     elif args.cmd == "ab":
         comps = list(LITE) if args.competitions == "lite" else args.competitions.split(",")
-        ab(box, comps, tuple(args.arms.split(",")), args.seeds, args.hours, args.usd, args.parallel, model=args.model)
+        ab(box, comps, tuple(a.strip() for a in args.arms.split(",") if a.strip()), args.seeds, args.hours, args.usd,
+           args.parallel, model=args.model)
         print(json.dumps(report(), indent=1))
     return 0
 

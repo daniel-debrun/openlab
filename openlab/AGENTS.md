@@ -132,6 +132,11 @@ person talks only to leads; a lead passes on what its children need.
 - A proposal's lead and every agent openlab spawned with a budget delegate only with `agent_spawn`: Claude Code's
   own Agent/Task tool is disabled for spawned agents and refused by the hooks ("delegate with openlab_agent_spawn so
   the branch budget applies"), because its sub-agents run outside the branch budgets and role prompts.
+- A child that needs a GPU or many cores gets them with `agent_spawn(..., resources={"gpus": 1, "cores": 4,
+  "memory_gb": 24})`: an allocation on one node for its life, which openlab picks (`openlab_tool("nodes")` lists
+  them; `node` pins one; `params` passes its settings as data). The answer says whether it runs or waits, and why. A
+  child spawned without `resources` shares yours. On a remote node, your shell stays here: run work there with
+  `openlab node exec -- COMMAND` (your brief says how); `ssh`, `sbatch`, `srun` and the like are refused.
 - Put everything the child needs in its prompt: the study, the question, the node ids, its trial share, its stop
   rule. A child cannot read your context.
 - `agent_wait(ids)` takes agent ids, your inbox items (`inbox:7`) and your runs (`job:run-...`), mixed, and waits
@@ -195,7 +200,9 @@ These belong to the person, who signs each with a passphrase-protected key:
 - approving, rejecting or waiving a claim, a paper finding or a retracted source;
 - approving a proposal, deciding an inbox item, resuming a paused agent, more budget;
 - registering an instrument version, pinning one in a study, and every run of a `live-order` instrument;
-- starting an experiment.
+- starting an experiment;
+- making a harness version active, approving or retiring a harness lesson, and starting a refinement or a
+  reflection (`openlab harness`).
 
 When you need one, file `agent_request(kind, reason, study, args)` with the exact change in `args` (a budget:
 `{"usd": 1.0}`; an approval: `{"on": "<id>", "decision": "approve"}`), say why and what it costs (the look

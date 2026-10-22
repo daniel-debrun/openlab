@@ -89,9 +89,21 @@ def schedule(box: Path | None = None) -> dict:
 
 
 def capacity() -> dict:
+    """What runs here may use: the machine (or, inside a worker's local allocation, its share), less what the live
+    local allocations hold when this process is outside them (openlab.nodes.alloc)."""
     total = machine.memory()[1]
-    return {"cores": machine.cores(), "memory_gb": total / 2 ** 30 if total else float("inf"),
-            "gpus": len(machine.gpus())}
+    cap = {"cores": machine.cores(), "memory_gb": total / 2 ** 30 if total else float("inf"),
+           "gpus": len(machine.gpus())}
+    if not machine.share():
+        try:
+            from ..nodes.alloc import local_held
+            for r in local_held():
+                cap = {"cores": max(1, cap["cores"] - (r["cores"] or 0)),
+                       "memory_gb": max(0.0, cap["memory_gb"] - (r["memory_gb"] or 0)),
+                       "gpus": max(0, cap["gpus"] - (r["gpus"] or 0))}
+        except Exception:                                           # noqa: BLE001 -- no allocations: the machine
+            pass
+    return cap
 
 
 # --- the queue ---------------------------------------------------------------------------------------------------

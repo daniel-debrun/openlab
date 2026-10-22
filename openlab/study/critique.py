@@ -7,7 +7,8 @@ where it applies (`model.py:57`, a result, a claim). Each finding is then answer
 
 - `checked`, naming the check that settled it (`by`): a module check, a run (its truncation audit), a comparison or
   a test. The finding is confirmed when that check shows the problem: a red module check, a run whose audit found
-  look-ahead, a comparison or test that went against the side the finding defended, as recorded;
+  look-ahead, a comparison in which the critique's target comes out worse, a test of the target that does not
+  reject (its edge is not shown); a comparison it wins or a test that rejects refutes the finding;
 - `dismissed`, with the reason (and, when one exists, the node that shows why).
 
 A critique's track record is computed from its answers: findings confirmed, not confirmed, dismissed, still open.
@@ -40,15 +41,42 @@ def answer(study, critique: str, index: int, action: str, reason: str = "", by: 
     return rec.add(Finding(index=index, action=action, reason=reason), actor="agent", links=links)
 
 
-def confirmed(rec, node) -> bool | None:
-    """Whether the check `node` shows a problem (None when it cannot say)."""
+def _results(rec, target) -> set:
+    """The result ids a critique's target stands for: a result itself, a run's result, a claim's grounds."""
+    if target is None:
+        return set()
+    if target.kind == "result":
+        return {target.id}
+    if target.kind == "run":
+        return {src for src, _, _ in rec.links(target.id, rel="of", incoming=True)}
+    if target.kind == "claim":
+        return {dst for _, _, dst in rec.links(target.id, rel="rests_on") if rec.get(dst).kind == "result"}
+    return set()
+
+
+def confirmed(rec, node, target=None) -> bool | None:
+    """Whether the check `node` shows a problem with the critique's `target` (None when it cannot say). A comparison
+    confirms the finding when the target's result is a side and comes out worse, and refutes it when it comes out
+    better; a test of or from the target confirms it when it does not reject (the target's edge is not shown), and
+    refutes it when it rejects."""
     p = node.payload
     if node.kind == "module_check":
         return not p["ok"]
     if node.kind == "run":
         return p["audit"].get("verdict") == "look-ahead"
-    if node.kind in ("comparison", "test"):
-        return None
+    ours = _results(rec, target)
+    if node.kind == "comparison":
+        sides = [dst for _, _, dst in rec.links(node.id, rel="compares")]
+        if not ours or not sides or sides[0] not in ours and (len(sides) < 2 or sides[1] not in ours):
+            return None
+        first = sides[0] in ours                                    # the verdict is the first side's
+        target_better = {"better": first, "worse": not first}.get(p.get("verdict"))
+        return None if target_better is None else not target_better
+    if node.kind == "test":
+        tested = {dst for _, _, dst in rec.links(node.id, rel="from")} | {dst for _, _, dst in rec.links(node.id, rel="of")}
+        if not (tested & (ours | ({target.id} if target is not None else set()))):
+            return None
+        return not p["rejected"]
     return None
 
 
@@ -65,7 +93,8 @@ def track(study, critique_id: str) -> dict:
             status[i] = "dismissed"
             continue
         by = rec.links(f.id, rel="by")
-        verdict = confirmed(rec, rec.get(by[0][2])) if by else None
+        target = rec.get(rec.links(critique_id, rel="on")[0][2])
+        verdict = confirmed(rec, rec.get(by[0][2]), target) if by else None
         status[i] = {True: "confirmed", False: "not confirmed", None: "checked"}[verdict]
     counts = {k: sum(1 for v in status.values() if v == k)
               for k in ("confirmed", "not confirmed", "checked", "dismissed", "open")}

@@ -108,6 +108,8 @@
     D.ledgerTotal = s.ledger.total;
     D.experiments = s.experiments || [];             // as experiment_status reads them (openlab.study.experiments.view)
     D.instruments = s.instruments || [];
+    D.harness = s.harness || { versions: [] };       // the harness versions (Settings)
+    D.signals = {};                                  // read per agent when its step panel opens (harness_signals)
     D.studies = s.studies || [];                     // each study's seal (openlab.study.sealing.overview)
   }
 

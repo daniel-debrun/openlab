@@ -159,8 +159,7 @@ def test_the_live_page_end_to_end(home, server, chrome):
             assert await p.until("document.querySelector('#sessNav') ? document.body.innerText.includes('child-1') : document.body.innerText.includes('child-1')")
 
             # every view draws
-            for v in ("activity", "roadmap", "board", "experiments", "burn", "raid", "ledger", "paper", "queue", "settings",
-                      "inbox"):
+            for v in ("roadmap", "experiments", "burn", "ledger", "paper", "settings", "inbox"):
                 await p.js(f"document.querySelector('[data-view={v}]').click()")
                 await asyncio.sleep(0.3)
                 assert await p.js(f"document.querySelector('#v-{v}') ? getComputedStyle(document.querySelector('#v-{v}')).display !== 'none' : true")
@@ -297,7 +296,7 @@ def told_text(st) -> str:
 
 
 
-def test_flags_are_one_chip_per_kind_the_paper_names_its_folder_and_the_spinner_means_work(home, server, chrome):
+def test_flags_are_one_chip_per_kind_and_the_paper_names_its_folder(home, server, chrome):
     h, ctx, st, q = home
     for _ in range(5):
         st.event("child-1", "refusal", tool="Read", summary="Read .openlab/record.jsonl: read the record through the tools")
@@ -314,24 +313,14 @@ def test_flags_are_one_chip_per_kind_the_paper_names_its_folder_and_the_spinner_
             await p.call("Page.enable")
             await p.call("Page.navigate", url=server)
             assert await p.until("document.querySelectorAll('#wsTabs .wst').length === 2", 15)
-            await p.js("document.querySelector('[data-view=activity]').click()")
-            # one chip per kind, with its count and a plain tooltip
-            assert await p.until("!!document.querySelector('[data-fagent=\"child-1\"]')", 8)
-            chips = await p.js("[...document.querySelectorAll('#activity td.flc')].map((td) => [...td.querySelectorAll('.flag')].map((c) => c.textContent)).filter((x) => x.length)")
-            assert chips == [["BYPASS ×1", "LOOP ×5", "refused ×5"]]
-            tip = await p.js("document.querySelector('[data-fagent=\"child-1\"][data-flag=BYPASS]').title")
-            assert "get around a guard" in tip and "click to see" in tip.lower()
-            assert "said what to do instead" in await p.js("document.querySelector('[data-flag=refused]').title")
-            # a click lists those events under the agent's row
-            await p.js("document.querySelector('[data-flag=BYPASS]').click()")
-            assert await p.until("(document.querySelector('#activity tr.flagx') || {}).innerText?.includes('echo x > .openlab')")
-            assert not await p.js("document.querySelector('#activity tr.flagx').innerText.includes('read the record through')")
-            # child-1 works: the spinner says so; once nothing runs (lead-1 waits on the person), it goes quiet
-            assert await p.js("getComputedStyle(document.querySelector('#nSpin')).display !== 'none' && document.querySelector('#aLive .spin') !== null")
-            st.set_status("child-1", "done")
-            await p.js("LAB.load()")
-            assert await p.until("getComputedStyle(document.querySelector('#nSpin')).display === 'none'", 6)
-            assert await p.js("!document.querySelector('#aLive .spin') && document.querySelector('#aLive').textContent === 'idle'")
+            # an agent's flags are on its Roadmap row, one chip per kind that needs you; the tip says what it means
+            # and shows the attempts the hooks refused
+            await p.js("document.querySelector('[data-view=roadmap]').click()")
+            assert await p.until("!!document.querySelector('#list [data-wid=\"child-1\"] .rdh')", 8)
+            chips = await p.js("[...document.querySelectorAll('#list [data-wid=\"child-1\"] .rdh')].map((c) => c.textContent)")
+            assert "BYPASS ×1" in chips and "LOOP ×5" in chips
+            tip = await p.js("[...document.querySelectorAll('#list [data-wid=\"child-1\"] .rdh')].find((c) => c.textContent.startsWith('BYPASS')).title")
+            assert "get around a guard" in tip and "echo x > .openlab" in tip
             # the Workspace: the research's files as a tree; a study folder starts its paper; a file opens beside its
             # rendering; with nothing selected, a comment is on the whole file
             await p.js("document.querySelector('[data-view=paper]').click()")

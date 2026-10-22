@@ -83,7 +83,7 @@ def test_cli_tool_runs_the_same_dispatch(tmp_path, monkeypatch, capsys):
     assert main(["tool"]) == 0 and "study_run" in capsys.readouterr().out
     assert main(["tools"]) == 0
     out = capsys.readouterr().out
-    assert len(out.splitlines()) <= 19 and "study (" in out                # a line or two per section, wrapped and "study_holdout" not in out
+    assert len(out.splitlines()) <= 20 and "study (" in out                # a line or two per section, wrapped and "study_holdout" not in out
     assert main(["tool", "study_run", "--help"]) == 0 and "arguments: folder:string" in capsys.readouterr().out
 
 

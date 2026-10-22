@@ -9,20 +9,11 @@ import os
 import sys
 from pathlib import Path
 
+from .harness import load as load_harness
+
 GUIDE = Path(__file__).resolve().parent / "AGENTS.md"          # packaged; docs/AGENTS.md links here
 
-BRIEF = """Openlab keeps the research record: you write the model code; Openlab runs, counts and audits it.
-A study is a folder: study.toml (the plan), model.py (features, label, Model.fit/predict), recipes/ (data scripts)
-and .openlab/ (the record; never read or write there). Order: study_new; edit the files; study_materialise; study_run (each
-run is a counted trial; the first seals study.toml); study_status, study_runs, study_why to read; study_amend to
-record an edit with its reason. Report through the record (study_claim, study_test): a number comes from a run or
-quote-checked evidence, never typed.
-A refusal is the structure working: read error, meaning and try, and do what try says. Never route around one: no
-second study for fresh trials or a fresh holdout, no faked terminals.
-Person-only acts (holdout looks, protected amendments, screens over yours, approvals, waivers, more budget) are signed
-with the person's passphrase-protected key: the record refuses one without it and verify flags forgeries, so no
-shell of yours can perform one; attempts are recorded with your id. Ask with agent_request, the exact change in args.
-Read openlab://guide for the full contract."""
+BRIEF = load_harness().text("guide.md")
 
 
 def tool_mode() -> str:
@@ -51,10 +42,23 @@ def conventions() -> str:
     return f"\n\nThis project's conventions (OPENLAB.md, written by the person; follow them):\n{text}" if text else ""
 
 
+def active_harness():
+    """The harness of the workspace this server serves (OPENLAB_WORKSPACE): its active version, else the packaged
+    one (a version that does not validate here falls back to the packaged one: the MCP always starts)."""
+    root = os.environ.get("OPENLAB_WORKSPACE")
+    if not root:
+        return load_harness()
+    try:
+        from .harness.versions import active
+        return active(Path(root))
+    except Exception:                                               # noqa: BLE001 -- spawn refuses it, loudly
+        return load_harness()
+
+
 def instructions(mode: str | None = None) -> str:
     """The instructions for the tool list ``mode`` (default: the one OPENLAB_MCP_TOOLS names)."""
     mode = tool_mode() if mode is None else mode
-    text = BRIEF + "\n" + env_line()
+    text = active_harness().text("guide.md") + "\n" + env_line()
     if mode == "grouped":
         text += ("\nThe workspace tools are grouped by section: a name used above such as openlab_study_run "
                  'is openlab_study(tool="study_run", args={...}); each family lists its members, and '

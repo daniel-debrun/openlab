@@ -32,7 +32,7 @@ STATUSES = ("running", "idle", "waiting", "paused", "done", "failed", "stopped",
 LIVE = ("running", "idle", "waiting", "paused")
 FINAL = ("done", "failed", "stopped", "lost", "ended")   # ended: a hook session gone quiet (reap)
 INBOX_KINDS = ("holdout", "amend", "approval", "budget", "screen", "screen_conflict", "screen_maybe", "fresh",
-               "continues", "compute", "question", "instrument", "instrument_run", "experiment", "other")
+               "continues", "compute", "question", "instrument", "instrument_run", "experiment", "harness", "other")
 
 #: [agents] defaults in openlab.toml
 DEFAULTS = {"stuck_minutes": 5, "session_timeout_hours": 12, "max_depth": 3, "max_children": 6, "loop_refusals": 3,

@@ -22,7 +22,9 @@ nav:
   - ML models in a study: ml.md
   - Search, selection and lessons: search.md
   - Module checks, ensembles, critiques: checks.md
+  - "The harness: what agents are told": harness.md
   - On a server or GPU box: box.md
+  - Nodes and allocations: nodes.md
   - A W&B mirror: mirror.md
   - Coming from R: from-r.md
   - What is in the box: features.md

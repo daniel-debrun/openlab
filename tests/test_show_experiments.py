@@ -99,6 +99,9 @@ def test_the_experiments_tab_draws_progress_runs_the_reaction_and_the_instrument
             assert await p.js("!!document.querySelector('[data-xcard=\"tender/paper_trial\"] .xst.running')")
             assert await p.js("!!document.querySelector('[data-xcard=\"tender/warmup\"] .xst.reacted')")
             card = "document.querySelector('[data-xcard=\"tender/paper_trial\"]')"
+            assert "2 of 20 passes" in await p.js(f"{card}.innerText")              # at first glance: how far along
+            # its jobs, runs and timing are one click away
+            await p.js("document.querySelectorAll('#experiments details.xmore').forEach((d) => { d.open = true; })")
             assert "2 of 20 ok" in await p.js(f"{card}.innerText")
             assert "until" in await p.js(f"{card}.innerText")
             assert "Roadmap: lead-1 · The forward paper trial · active" in await p.js(f"{card}.innerText")
