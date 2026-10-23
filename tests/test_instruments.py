@@ -109,6 +109,24 @@ def test_the_inbox_approval_registers_it_as_the_person(ws, tiny_python, person_k
     assert node.actor == "person" and node.payload["sig"]["key"] == person_key.signer.fingerprint
 
 
+
+def test_the_inbox_approval_reads_a_relative_source_from_the_workspace_not_the_approvers_folder(ws, tiny_python,
+                                                                                               person_key, tmp_path,
+                                                                                               monkeypatch):
+    from openlab.agents.inbox import decide
+    from openlab.agents.store import Store
+    src = _pkg(ws)
+    store = Store(ws)
+    item = store.request("a1", "instrument", "register the test instrument",
+                         args={"name": "tinst", "entry": f"{tiny_python} -m tinst",
+                               "source": str(src.relative_to(ws)), "outputs": "out.json"})
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)          # openlab show approves from its own folder
+    with person_key.act():
+        done = decide(store, item, True, "fine")
+    assert done["status"] == "approved" and done["result"]["summary"].startswith("registered tinst@")
+
 # --- a python -m instrument: snapshot, run, hashes ------------------------------------------------------------------
 def test_a_python_module_instrument_runs_from_its_snapshot_and_records_its_hashes(ws, tiny_python, person_key):
     src = _pkg(ws)

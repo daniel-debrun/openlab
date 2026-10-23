@@ -1,8 +1,8 @@
-"""The README's screenshots of `openlab show`, taken from the demo workspace (scripts/demo_workspace.py) in headless
-Chrome over the DevTools protocol.
+"""The README's screenshots of `openlab show`, taken in headless Chrome over the DevTools protocol from the showcase:
+four workspaces under one folder, each a real study built to use one part of openlab (a person in the loop, compute
+across nodes, scheduled experiments on instruments, a paper's replication).
 
-    python scripts/demo_workspace.py /tmp/openlab-demo
-    python scripts/screenshots.py /tmp/openlab-demo docs/images
+    python scripts/screenshots.py ~/showcase docs/images
 
 Needs google-chrome and the `websockets` package (in the `test` extra).
 """
@@ -22,7 +22,7 @@ import urllib.request
 from pathlib import Path
 
 W, H = 1440, 900
-RESEARCH = "station-forecasts"
+PERSON, SWEEP, WEATHER = "bike-person", "model-sweep", "weather-nowcast"   # the showcase's workspaces
 
 
 def free_port() -> int:
@@ -82,37 +82,41 @@ async def take(url: str, chrome_ws: str, out: Path):
         await p.call("Page.enable")
         await p.call("Runtime.enable")
         await p.call("Emulation.setDeviceMetricsOverride", width=W, height=H, deviceScaleFactor=1, mobile=False)
-        await p.call("Page.navigate", url=f"{url}&w={RESEARCH}")
-        await p.until("document.body.innerText.includes('lead-4f2a')", 30)
-        await asyncio.sleep(1.5)
-        await p.shot(out / "activity.png")
 
-        await p.click("[data-view=roadmap]")
-        await p.until("!!document.querySelector('.bar[data-node=final]')")
-        await p.click(".bar[data-node=final]")
-        await p.until("document.querySelector('#peek').classList.contains('on')")
-        await asyncio.sleep(0.8)
+        async def open_(w, view, ready):
+            await p.call("Page.navigate", url=f"{url}&w={w}#{view}")
+            await p.until(ready, 30)
+            await asyncio.sleep(1.2)
+
+        await open_(SWEEP, "roadmap", "!!document.querySelector('.bar')")
         await p.shot(out / "roadmap.png")
 
-        await p.click("[data-view=paper]")
-        await p.until("!!document.querySelector('#wTree [data-wpath=\"next-day\"]')")
-        await p.click("#wTree [data-wpath=\"next-day\"]")
-        await p.until("!!document.querySelector('#wTree [data-wpath=\"next-day/paper\"]')")
-        await p.click("#wTree [data-wpath=\"next-day/paper\"]")
-        await p.until("!!document.querySelector('#wTree [data-wpath=\"next-day/paper/paper.tex\"]')")
-        await p.click("#wTree [data-wpath=\"next-day/paper/paper.tex\"]")
+        await p.click(".bar[data-plan^=lead]")
+        await p.until("document.querySelector('#peek').classList.contains('on')")
+        await asyncio.sleep(0.8)
+        await p.shot(out / "step.png")
+
+        await open_(WEATHER, "experiments", "document.querySelector('#experiments').innerText.includes('nowcast')")
+        await p.shot(out / "experiments.png")
+
+        await open_(SWEEP, "burn", "document.querySelector('#burn').innerText.includes('Budgets')")
+        await p.shot(out / "resources.png")
+
+        await open_(PERSON, "inbox", "!!document.querySelector('#inbox').innerText.trim()")
+        await p.shot(out / "inbox.png")
+
+        await open_(SWEEP, "paper", "!!document.querySelector('#wTree [data-wpath=\"model-sweep\"]')")
+        for sub in ("model-sweep", "model-sweep/paper", "model-sweep/paper/paper.tex"):
+            sel = f"#wTree [data-wpath=\"{sub}\"]"
+            await p.until(f"!!document.querySelector({json.dumps(sel)})")
+            await p.click(sel)
         await p.until("(document.querySelector('#wMsg') || {}).textContent?.includes('Rendered')", 90)
-        await p.click("#wCmts .dcard")
         await asyncio.sleep(3)
         await p.shot(out / "workspace.png")
 
-        await p.click("[data-view=inbox]")
-        await p.until("document.querySelector('#inbox').innerText.includes('holdout')")
-        await asyncio.sleep(0.6)
-        await p.shot(out / "inbox.png")
-
-        await p.click("[data-view=ledger]")
-        await p.until("document.querySelector('#ledger').innerText.includes('result:')")
+        await open_(SWEEP, "ledger", "document.querySelector('#ledger').innerText.includes('result:')")
+        await p.js("const s = document.querySelector('#ledWho'); s.value = s.options[1].value; "
+                   "s.dispatchEvent(new Event('change', {bubbles: true}))")   # the lead's own entries
         await asyncio.sleep(0.6)
         await p.shot(out / "ledger.png")
 

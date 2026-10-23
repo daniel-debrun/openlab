@@ -292,7 +292,11 @@ def _toml_value(v) -> str:
         return json.dumps(v, ensure_ascii=False)
     if isinstance(v, (list, tuple)):
         return "[" + ", ".join(_toml_value(x) for x in v) + "]"
-    raise StudyError(f"cannot write {v!r} into study.toml", "a string, number, boolean or a list of them")
+    if isinstance(v, dict):   # an inline table: [review] coverage_floor, the include and exclude criteria
+        import re
+        key = lambda k: k if re.fullmatch(r"[A-Za-z0-9_-]+", str(k)) else json.dumps(str(k), ensure_ascii=False)
+        return "{" + ", ".join(f"{key(k)} = {_toml_value(x)}" for k, x in v.items()) + "}"
+    raise StudyError(f"cannot write {v!r} into study.toml", "a string, number, boolean, table or a list of them")
 
 
 def write_fields(folder: Path, fields: dict) -> list:

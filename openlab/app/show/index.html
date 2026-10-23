@@ -1059,8 +1059,10 @@
 
   const rdplan = (id) => { const ps = plansOf(id); return ps.length ? ps[vIdx(id)] : null; };
   function rdlead() {                                   // the lead at the top of the selected worker's tree
-    let s = sess(cur) || liveLeads()[0] || D.sessions.find((x) => isLead(x)) || D.sessions[0];
-    while (s && s.parent && sess(s.parent)) s = sess(s.parent);
+    const top = (s) => { while (s && s.parent && sess(s.parent)) s = sess(s.parent); return s; };
+    let s = top(sess(cur) || liveLeads()[0] || D.sessions.find((x) => isLead(x)) || D.sessions[0]);
+    // In progress is the running work: a finished lead's tree gives way to a lead still running
+    if (s && FINAL.has(s.state) && liveLeads().length) s = top(liveLeads()[0]);
     return s ? s.id : null;
   }
   function rdtree() {
@@ -1162,7 +1164,9 @@
       : `<div class="rdfin" title="The end of ${esc(L)}'s last step, ${esc(fin.title)}, if every step on the path takes its usual time">
           <span class="rdfl">${PAST.has(fin.state) ? "Finished" : "Finishes about"}</span><b>${clock(T[fin.id].e)}</b><span class="rdin">${PAST.has(fin.state) ? "" : `in ${hm}`}</span></div>
         ${rdpending()}`;
-    if (LIVEM && !leadRunning()) $("#rdsum").insertAdjacentHTML("afterbegin", `<div class="note2 rdlead"><span>${leadDraft[curWs()] ? `<b>The lead of ${esc(curWs())} did not start.</b> Fix what stopped it (is the agent CLI installed and signed in?), then start it again.` : D.sessions.length ? `No lead is running in ${esc(curWs())}.` : `${esc(curWs())} has no agents yet.`}</span><button class="b pri" onclick="openPal('lead')">Start the lead</button></div>`);
+    // no lead running: say so, unless every lead finished its work (New session starts another)
+    const leads = D.sessions.filter((s) => isLead(s) && !isP(s.id)), allDone = leads.length && leads.every((s) => s.state === "done");
+    if (LIVEM && !leadRunning() && (!allDone || leadDraft[curWs()])) $("#rdsum").insertAdjacentHTML("afterbegin", `<div class="note2 rdlead"><span>${leadDraft[curWs()] ? `<b>The lead of ${esc(curWs())} did not start.</b> Fix what stopped it (is the agent CLI installed and signed in?), then start it again.` : D.sessions.length ? `No lead is running in ${esc(curWs())}.` : `${esc(curWs())} has no agents yet.`}</span><button class="b pri" onclick="openPal('lead')">Start the lead</button></div>`);
     $("#rdrun").innerHTML = `<div class="rdrun"><span title="Steps done of every worker's plan, dropped steps left out"><b>${dn}</b> of ${tot} steps done</span><i><b style="width:${tot ? (dn / tot) * 100 : 0}%"></b></i>
 </div>`;
 

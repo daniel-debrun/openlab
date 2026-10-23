@@ -59,6 +59,25 @@ INSTRUMENT_ARGS = ("name", "entry", "source", "runtime", "python", "node", "bina
                    "version_probe", "usage", "usage_args", "usage_sub", "usage_file")
 
 
+def instrument_kw(root, args: dict) -> dict:
+    """An instrument request's registration, its relative paths read from the workspace the agent named them in, not
+    from wherever the person approves it (openlab show runs in its own folder)."""
+    kw = {k: v for k, v in args.items() if k in INSTRUMENT_ARGS}
+
+    def at(p):
+        q = Path(str(p)).expanduser()
+        return str(q if q.is_absolute() else Path(root) / q)
+    for k in ("source", "config", "usage_file"):
+        if kw.get(k):
+            kw[k] = at(kw[k])
+    for k in ("python", "node"):   # a bare command name is looked up on PATH, not a path
+        if kw.get(k) and "/" in str(kw[k]):
+            kw[k] = at(kw[k])
+    if kw.get("env_files"):
+        kw["env_files"] = [at(p) for p in ([kw["env_files"]] if isinstance(kw["env_files"], str) else kw["env_files"])]
+    return kw
+
+
 class RequestError(ValueError):
     def __init__(self, error: str, try_: str = ""):
         super().__init__(error)
@@ -311,7 +330,7 @@ def describe(store: Store, item: dict, approve: bool = True) -> tuple[str, list]
                        "(see docs/box.md)"]
         elif kind == "instrument":
             from ..study import instruments
-            prep = instruments.prepare(store.root, **{k: v for k, v in args.items() if k in INSTRUMENT_ARGS})
+            prep = instruments.prepare(store.root, **instrument_kw(store.root, args))
             head = f"{head} -> register instrument {prep.ident}"
             details = instruments.preview(prep)
         elif kind == "instrument_run":
@@ -451,7 +470,7 @@ def perform(store: Store, item: dict, reason: str, by: str, pick=None) -> dict:
             out = s.amend(why, person=True)
         elif kind == "instrument":
             from ..study import instruments
-            kw = {k: v for k, v in args.items() if k in INSTRUMENT_ARGS}
+            kw = instrument_kw(store.root, args)
             out = instruments.register(store.root, kw.pop("name"), kw.pop("entry"), reason=why, **kw)
             out = {**out, "summary": f"registered {instruments.ident(out['payload'])}"}
         elif kind == "instrument_run":

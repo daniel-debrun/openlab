@@ -19,7 +19,7 @@ Openlab is a control plane and a study record for the Claude Code and Codex agen
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 [![License: PolyForm Shield 1.0.0](https://img.shields.io/badge/license-PolyForm%20Shield%201.0.0-orange)](https://github.com/daniel-debrun/openlab/blob/HEAD/LICENSE)
 
-![openlab show, Activity: every agent and person, what each is doing now, its spend against its budget and its flags](docs/images/activity.png)
+![openlab show, Roadmap: a lead and five workers across this machine and a Slurm cluster, every step done and on the record](docs/images/roadmap.png)
 
 ## How it works
 
@@ -153,23 +153,36 @@ From a shell: `openlab agent tell LEAD "..."`, `openlab agent pause ID --reason 
 record id confirms it, dashed while it is the agent's word. A step opens the agent's conversation up to the call
 that marked it done.
 
-![Roadmap: the lead's plan, each step outlined by the record's evidence, and the panel of a step the record confirms](docs/images/roadmap.png)
+![Roadmap: a step's panel, with what the record shows for it and how its agent is running](docs/images/step.png)
+
+**Experiments.** A study's pinned instruments on a schedule, unattended, for a set number of passes; when one ends, a
+reviewer agent judges the runs against its purpose and writes the conclusion.
+
+![Experiments: three scheduled experiments on a weather instrument, two concluded with a reviewer's verdict and one running](docs/images/experiments.png)
+
+**Resources.** What each worker has spent against its budget, the plan's progress against its scope, and the machines
+openlab places workers on.
+
+![Resources: steps done against the plan's scope, and each worker's spend against its budget](docs/images/resources.png)
 
 **Workspace.** The research's files. The paper's LaTeX beside the PDF it builds to, with every number bound to the
 record; a comment on any text or file goes to the lead, which answers in the thread.
 
-![Workspace: the study's paper.tex beside its rendered PDF, with a comment thread between the person and the lead](docs/images/workspace.png)
+![Workspace: the study's paper.tex beside its rendered PDF, 108 bindings, no findings](docs/images/workspace.png)
 
-**Inbox.** The agents' questions and requests, answered with a choice, an answer of the person's own and a message.
+**Inbox.** The agents' questions and requests, answered with a choice, an answer of the person's own and a message;
+the acts only a person may take are signed.
 
-![Inbox: the lead asks whether to look at the holdout now or run one more trial first](docs/images/inbox.png)
+![Inbox: the person's answers and signed approvals, newest first](docs/images/inbox.png)
 
 **Audit ledger.** The study record itself, newest first, each entry's hash covering the one before it.
 
-![Audit ledger: runs, tests, claims, dead ends and the paper, each entry hash-chained to the one before](docs/images/ledger.png)
+![Audit ledger: the lead's claims, dead ends and signed paper, each entry hash-chained to the one before](docs/images/ledger.png)
 
-The screens come from the demo research that `scripts/demo_workspace.py` builds: a real study, its record and its
-paper, with the agents' activity staged around them. `scripts/screenshots.py` takes them again.
+The screens come from four real studies run with openlab, each built to use one part of it: a ranking of six models
+across ten datasets on this machine and a Slurm cluster, scheduled experiments on a weather instrument, a forecast study
+with a person deciding its design and its holdout look, and a paper's replication. `scripts/screenshots.py` takes them
+again from their folder.
 
 ## Your person key
 
