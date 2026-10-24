@@ -1,6 +1,6 @@
 # Install
 
-Python 3.10 or later. Openlab 1.3.0 is alpha.
+Python 3.10 or later. Openlab 1.4.0 is alpha.
 
 ```
 pip install "openlab-research[study]"

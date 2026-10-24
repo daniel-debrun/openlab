@@ -13,7 +13,7 @@ server ``openlab-mcp``. The LaTeX checker behind derived claims and the paper's 
 (:mod:`openlab.engine`).
 """
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 
 def __getattr__(name):

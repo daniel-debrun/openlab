@@ -2,6 +2,30 @@
 
 ## Unreleased (Nightly-latest)
 
+## 2026-10-24 -- 1.4.0: instruments, experiments, the harness and compute nodes, under Apache 2.0
+
+openlab is now licensed under the **Apache License 2.0** (LICENSE, NOTICE). Releases before 1.4.0 keep the PolyForm
+Shield license they were published under.
+
+- **Harness versions.** What openlab tells its agents (briefs, role prompts, tool descriptions, skills) is versioned:
+  a person makes a version active, signed. Each run's probe signals, contrasts between versions, harness lessons
+  through the inbox, refinement and reflection (`openlab harness`, docs/harness.md).
+- **Compute allocations.** Nodes are this machine, SSH machines and Slurm clusters (`box.toml`). An agent spawned
+  with `resources` holds an allocation for its life, placed on a node that fits or queued; remote work runs through
+  `openlab node exec`, and a supervised agent's own `ssh`, `sbatch` and `srun` are refused (docs/nodes.md).
+- **PaperBench.** The adapter's instruction, the `paperbench_submit` instrument and a Claude judge (bench/paperbench).
+- **openlab show, calmer.** Seven tabs: Inbox, Roadmap, Experiments, Resources, Audit ledger, Workspace, Settings.
+  - The Roadmap leads with when the run finishes and a square per pending step, then the steps in progress and each
+    worker folded; Gantt, Board and Assumptions views; bars named on hover; a step's panel opens from the bottom
+    with its details and how its agent is running.
+  - An inbox item and an experiment's conclusion read as their first sentence, the rest under More. A heading's
+    explanation sits behind an info icon. Activity, Board and RAID fold into the Roadmap; Burn and Compute are one
+    Resources tab. Settings lists the harness versions with Make active.
+- **Fixes found running four showcase studies.** An instrument request approved from `openlab show` now reads its
+  relative paths from the workspace; an amendment writes tables into study.toml (a `[review]`); In progress follows
+  a running lead; a workspace whose leads all finished no longer asks to start one.
+- The README's screens come from those four studies (`scripts/screenshots.py`).
+
 - **Instruments.** Registered, immutable programs that measure or act outside the sandbox: a broker's paper account,
   a collector, a scraper, a CLI. An instrument wraps any command (an argv entry: `python -m pkg`, `node x.js`, a shell
   script, a binary, `npx`, `uv run`).
