@@ -108,7 +108,10 @@ def test_the_experiments_tab_draws_progress_runs_the_reaction_and_the_instrument
             assert await p.js(f"{card}.querySelectorAll('.xrun.ok').length") == 4
             assert "stop rule met: 1 passes" in await p.js(
                 "document.querySelector('[data-xcard=\"tender/warmup\"]').innerText")
-            assert "the warm-up exported its rows" in text and "reviewer-0a0b0c" in text
+            assert "the warm-up exported its rows" in text                      # the verdict's first sentence
+            await p.js("document.querySelectorAll('#experiments details.more').forEach((d) => { d.open = true; })")
+            assert "reviewer-0a0b0c" in await p.js(              # who concluded it, one click away
+                "document.querySelector('[data-xcard=\"tender/warmup\"]').innerText")
             # a run's chip shows its output, read through instrument_output
             await p.js(f"{card}.querySelector('.xrun.ok').click()")
             assert await p.until(f"({card}.querySelector('.xout pre') || {{}}).innerText?.includes('ran ')", 8)

@@ -629,6 +629,9 @@
   button.xrun:hover{border-color:var(--acc);color:var(--acc)}
   .xend{margin-top:10px;font-size:12.5px;padding:7px 10px;border-radius:7px;background:var(--soft);border:1px solid var(--line)}
   .xend.failed{background:#fff4f4;border-color:#efb4b4}
+  details.more{margin-top:4px}details.more>summary{cursor:pointer;font-size:12px;color:var(--mute);list-style:none;display:inline-block}
+  details.more>summary::-webkit-details-marker{display:none}details.more>summary::after{content:" ▸"}details.more[open]>summary::after{content:" ▾"}
+  details.more .det{white-space:pre-wrap}
   .xre{margin-top:8px;font-size:12.5px;padding:8px 10px;border-radius:7px;border:1.25px dashed var(--ol);background:#fbfbfc}
   .xre.done{border-style:solid}
   .xre .v{font-size:10.5px;font-weight:700;border-radius:4px;padding:1px 6px;margin-right:4px}
@@ -1392,7 +1395,7 @@
       : OP && LIVEM ? `<p class="hint">${esc(own)}'s step, in ${esc(pid)}'s plan: ${esc(pid)} reports it.</p>`
       : OP ? `<h4>Report for ${esc(own)}</h4><div class="mv">${["planned", "active", "waiting", "done", "dropped"].map((st) => `<button class="b${n.state === st ? " pri" : ""}" data-move="${st}" data-mplan="${esc(pid)}" data-mnode="${esc(n.id)}">${sico(st)} ${LAB.STATES[st].label}</button>`).join("")}</div>
         <p class="hint">Done stays their word (dashed) until a record id is linked.</p>`
-      : `<p class="hint">${esc(own)} reports this step itself; comment on it or tell the agent.</p>`;
+      : "";
     const by = Object.fromEntries(p.nodes.map((x) => [x.id, x])), needs = (n.needs || []).filter((x) => by[x]), nb = p.nodes.filter((x) => (x.needs || []).includes(n.id));
     const T = schedule(p.nodes).T[n.id];
     P.innerHTML = `<div class="pk-h">${esc(pid)} › plan v${esc(p.v)} › <span style="font-family:var(--mono)">${esc(n.id)}</span><button class="x" data-close="1" title="Close">×</button></div>
@@ -1406,8 +1409,8 @@
         <dt>Needed by</dt><dd>${nb.map((x) => `<button class="chip" data-node="${esc(x.id)}" data-plan="${esc(pid)}">${esc(x.title)}</button>`).join("") || "<span style='color:var(--mute)'>nothing</span>"}</dd>
         <dt>On the chart</dt><dd>${clock(T.s)}–${clock(T.e)}${PAST.has(n.state) ? "" : " (estimate)"}</dd>
       </dl>
-      <h4>What the record shows</h4>
-      <div class="rec ${esc(n.ev)}"><div class="rh">${n.ev === "bad" ? "! " : ""}${esc(evLong(n.ev, own))}</div><div class="rx">${esc(n.evidence) || "Nothing on record yet."}</div></div>
+      <h4>Details</h4>
+      <div class="rec ${esc(n.ev)}">${n.ev === "bad" ? `<div class="rh">! ${esc(evLong(n.ev, own))}</div>` : ""}<div class="rx">${esc(n.evidence) || "Nothing on record yet."}</div></div>
       <div class="hist">${report}</div>
       ${!isP(pid) && sess(pid) ? `<div class="hist"><h4>Conversation</h4><button class="b" data-conv="${esc(pid)}" data-cnode="${esc(n.id)}" data-ctitle="${esc(n.title)}">${n.state === "done" ? `${esc(pid)}'s conversation up to marking it done` : `${esc(pid)}'s conversation so far`}</button>${own !== pid && !isP(own) && sess(own) ? ` <button class="b" data-conv="${esc(own)}" data-cnode="" data-ctitle="">${esc(own)}'s conversation</button>` : ""}</div>` : ""}
       ${runOf(pid)}</div>`;
@@ -2322,6 +2325,16 @@
       <div class="src">A difference is called only when both sides have 2+ runs and it exceeds twice their pooled standard error.</div>`
       : `<div class="src">No stored contrast of runs behind it.</div>`}</div>`;
   }
+  // a long text read as its first sentence; the rest one click away (More)
+  function brief(t, n = 140) {
+    t = String(t || "").trim();
+    const m = t.slice(0, n + 1).match(/^.{20,}?[.?!:](?=\s|$)/s);
+    let head = m ? m[0] : t.length > n ? t.slice(0, t.lastIndexOf(" ", n) > 40 ? t.lastIndexOf(" ", n) : n) + "…" : t;
+    const rest = t.slice(head.replace(/…$/, "").length).trim();
+    if (head.endsWith(":")) head = head.slice(0, -1) + "…";
+    return { head, rest };
+  }
+  const more = (...parts) => { const ps = parts.filter(Boolean); return ps.length ? `<details class="more"><summary>More</summary>${ps.join("")}</details>` : ""; };
   function renderInbox() {
     const form = (it) => {
       if (it.type === "choice") {
@@ -2332,7 +2345,7 @@
           ${it.other ? `<label class="opt other"><input type="${kind}" name="q${esc(it.id)}" value="__other"><span>Other:</span><input type="text" placeholder="Type your own answer" data-other></label>` : ""}
           <div class="lbl">Message to ${esc(it.from)} (optional)</div>
           <textarea class="msg" placeholder="Anything the agent should know with your answer"></textarea>
-          <div class="row2"><button class="b pri" type="submit">Send answer</button><span class="hint">${esc(it.from)} reads it at its next tool call (<code>agent_inbox_item(${esc(it.id)})</code>).</span></div>
+          <div class="row2"><button class="b pri" type="submit">Send answer</button></div>
         </form>`;
       }
       const d = inboxNote[it.id];
@@ -2345,24 +2358,25 @@
         <div class="lbl">Message to ${esc(it.from)} (optional)</div>
         <textarea class="msg" placeholder="${d === "approve" ? "e.g. Approved: report it with the seed spread." : "e.g. Not yet: answer the critique's findings first."}"></textarea>
         <div class="row2"><input class="pass" type="password" placeholder="Passphrase (signs your act)"><button class="b ${d === "approve" ? "pri" : ""}" type="submit">${d === "approve" ? "Sign and approve" : "Sign and deny"}</button>
-          <span class="hint">A person's act, signed with your key${it.kind === "holdout" ? "; it spends the look" : ""}. Demo: no key is used.</span></div>
+          ${it.kind === "holdout" ? `<span class="hint">It spends the holdout look.</span>` : ""}</div>
       </form>`;
     };
-    const pending = D.inbox.map((it) => `<div class="it">${sico(it.type === "choice" ? "active" : "waiting")}<div style="flex:1">
-        <h3>#${esc(it.id)} · ${esc(it.what)}</h3>
+    const pending = D.inbox.map((it) => { const w = brief(it.what); return `<div class="it">${sico(it.type === "choice" ? "active" : "waiting")}<div style="flex:1">
+        <h3>#${esc(it.id)} · ${esc(w.head)}</h3>
         <div class="meta">from <b>${esc(it.from)}</b> at ${esc(it.at || "")} · ${it.type === "choice" ? `<span class="qkind">${it.multi ? "multiple choice" : "single choice"}${it.other ? " + other" : ""}</span>` : `<span class="personact">a person's act · ${esc(it.kind)}</span>`}</div>
-        ${it.detail ? `<p class="det">${esc(it.detail)}</p>` : ""}
+        ${more(w.rest && `<p class="det">${esc(w.rest)}</p>`, it.detail && `<p class="det">${esc(it.detail)}</p>`)}
         ${it.harness ? hevidence(it.harness) : ""}
         ${it.kind === "experiment" ? sealLine(it.study) : ""}
         ${it.type === "approval" ? `<div class="acts"><button class="b${inboxNote[it.id] === "approve" ? " pri" : ""}" data-inbox="approve" data-id="${esc(it.id)}">Approve…</button><button class="b${inboxNote[it.id] === "deny" ? " pri" : ""}" data-inbox="deny" data-id="${esc(it.id)}">Deny…</button></div>` : ""}
         ${form(it)}
-      </div></div>`).join("");
-    const done = D.answered.map((a) => `<div class="it">${sico(a.decision === "deny" ? "failed" : "done")}<div style="flex:1">
-        <h3>#${esc(a.id)} · ${esc(a.what)}</h3>
+      </div></div>`; }).join("");
+    const done = D.answered.map((a) => { const w = brief(a.what); return `<div class="it">${sico(a.decision === "deny" ? "failed" : "done")}<div style="flex:1">
+        <h3>#${esc(a.id)} · ${esc(w.head)}</h3>
         <div class="meta"><span class="dec ${esc(a.decision)}">${a.decision === "answer" ? "answered" : a.decision === "approve" ? "approved · signed" : "denied · signed"}</span> by ${esc(a.by)} at ${esc(a.answeredAt)} · to <b>${esc(a.from)}</b></div>
         ${a.decision === "answer" ? `<p class="det">${[...a.picks.filter((x) => x !== "__other"), ...(a.other ? [`Other: “${a.other}”`] : [])].map(esc).join(" · ")}</p>` : ""}
         ${a.message ? `<blockquote>${esc(a.message)}</blockquote>` : ""}
-      </div></div>`).join("");
+        ${more(w.rest && `<p class="det">${esc(w.rest)}</p>`)}
+      </div></div>`; }).join("");
     $("#inbox").innerHTML = `<h1>Inbox</h1><p class="sub">What waits for you: a person's acts to approve or deny (signed, with an optional message), and agents' questions to answer.</p>
       ${D.inbox.length ? `<div class="ibx">${pending}</div>` : `<p class="sub">Nothing waits for you.</p>`}
       ${D.answered.length ? `<div class="ibh">Answered</div><div class="ibx ans">${done}</div>` : ""}`;
@@ -2667,8 +2681,9 @@
     const end = ended ? `<div class="xend ${esc(x.end.state)}">Ended <b>${esc(x.end.state)}</b> at ${esc(xt(x.end.at))}: ${esc(x.end.reason)}</div>` : "";
     const b = r.budget || {}, money2 = b.usd ? `$${b.usd}` : "";
     const who = r.agent ? `<button class="chip" data-sess="${esc(r.agent)}">${esc(r.agent)}</button> ${esc(r.status || "")}${r.usd ? ` · ${money(r.usd)}` : ""}` : "";
-    const rx = r.verdict ? `<div class="xre done"><span class="v ${esc(r.verdict)}">${esc(r.verdict.replace("_", " "))}</span><b>Conclusion</b> by ${esc(r.by)}: ${esc(r.conclusion)}
-        ${(r.records || []).length ? `<div class="src" style="margin-top:4px">wrote ${r.records.map((id) => `<code>${esc(id)}</code>`).join(", ")}</div>` : ""}</div>`
+    const cw = brief(r.conclusion);
+    const rx = r.verdict ? `<div class="xre done"><span class="v ${esc(r.verdict)}">${esc(r.verdict.replace("_", " "))}</span>${esc(cw.head)}
+        ${more(cw.rest && `<p class="det">${esc(cw.rest)}</p>`, `<div class="src">by ${esc(r.by)}${(r.records || []).length ? ` · wrote ${r.records.map((id) => `<code>${esc(id)}</code>`).join(", ")}` : ""}</div>`)}</div>`
       : r.agent ? `<div class="xre">Reaction: the ${esc(r.role)} agent ${who} is reading the runs; its conclusion lands here.</div>`
       : r.spawn_error ? `<div class="xre" style="border-color:var(--alarm)">The reaction agent did not start: ${esc(r.spawn_error)}. <code>openlab experiment react ${esc(x.study)} ${esc(x.name)} --spawn</code> fires it again.</div>`
       : `<div class="xre">When it ends, a ${esc(r.role)} agent is fired to react (${esc([money2, b.minutes ? b.minutes + " min" : "", b.turns ? b.turns + " turns" : ""].filter(Boolean).join(", "))}).</div>`;
