@@ -8,12 +8,12 @@ version = "1.3.0"
 description = "A research framework you can trust: your coding agents run the research, openlab manages and monitors them and keeps sealed plans, point-in-time data, counted trials, person-only holdout looks and a hash-chained record."
 readme = "docs/pypi.md"            # written from README.md by docs/build_docs.py
 requires-python = ">=3.10"
-license = { text = "PolyForm-Shield-1.0.0" }
+license = { text = "Apache-2.0" }
 keywords = ["research", "agents", "claude-code", "codex", "reproducibility", "preregistration", "mle-bench"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: Other/Proprietary License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

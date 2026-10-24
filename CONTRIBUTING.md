@@ -50,4 +50,4 @@ Report a vulnerability privately, not in an issue; see [SECURITY.md](SECURITY.md
 
 ## License
 
-By contributing, you agree that your contribution is licensed under the terms in [LICENSE](LICENSE) (PolyForm Shield 1.0.0), and that the maintainer may also offer it under other terms.
+By contributing, you agree that your contribution is licensed under the Apache License 2.0 ([LICENSE](LICENSE)), as section 5 of that license provides.

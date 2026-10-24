@@ -1,6 +1,6 @@
 # Third-party notices
 
-openlab itself is under the PolyForm Shield License 1.0.0 (LICENSE). The web workspace's built bundle in `openlab/app/static/` (made
+openlab itself is under the Apache License 2.0 (LICENSE). The web workspace's built bundle in `openlab/app/static/` (made
 from `openlab/app/ui/` with Vite) includes the third-party software and fonts below. Their licenses require these
 notices to accompany the bundle; this file is also shipped as `openlab/app/static/THIRD_PARTY_NOTICES.md`.
 

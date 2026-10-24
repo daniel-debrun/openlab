@@ -15,7 +15,7 @@ Openlab is a control plane and a study record for the Claude Code and Codex agen
 
 [![tests](https://github.com/daniel-debrun/openlab/actions/workflows/test.yml/badge.svg)](https://github.com/daniel-debrun/openlab/actions/workflows/test.yml)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
-[![License: PolyForm Shield 1.0.0](https://img.shields.io/badge/license-PolyForm%20Shield%201.0.0-orange)](https://github.com/daniel-debrun/openlab/blob/HEAD/LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/daniel-debrun/openlab/blob/HEAD/LICENSE)
 
 ![openlab show, Roadmap: a lead and five workers across this machine and a Slurm cluster, every step done and on the record](images/roadmap.png)
 

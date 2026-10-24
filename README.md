@@ -17,7 +17,7 @@ Openlab is a control plane and a study record for the Claude Code and Codex agen
 
 [![tests](https://github.com/daniel-debrun/openlab/actions/workflows/test.yml/badge.svg)](https://github.com/daniel-debrun/openlab/actions/workflows/test.yml)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
-[![License: PolyForm Shield 1.0.0](https://img.shields.io/badge/license-PolyForm%20Shield%201.0.0-orange)](https://github.com/daniel-debrun/openlab/blob/HEAD/LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/daniel-debrun/openlab/blob/HEAD/LICENSE)
 
 ![openlab show, Roadmap: a lead and five workers across this machine and a Slurm cluster, every step done and on the record](docs/images/roadmap.png)
 
@@ -295,7 +295,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Report a vulnerability privately; see [S
 
 ## License
 
-[PolyForm Shield 1.0.0](LICENSE). Anyone may use, change and share openlab for any purpose, at work too, except to provide a product that competes with it: selling openlab, or a renamed copy of it, is not allowed. Every copy keeps the license and its `Required Notice` line. For other terms, open an issue. Third-party components keep their own licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). To cite openlab, see [CITATION.cff](CITATION.cff).
+[Apache License 2.0](LICENSE). Use, change and share openlab for any purpose, commercial too; keep the license and the [NOTICE](NOTICE) with every copy, and say what you changed. Third-party components keep their own licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). To cite openlab, see [CITATION.cff](CITATION.cff).
 
 ---
 
