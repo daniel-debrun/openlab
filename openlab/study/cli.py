@@ -533,6 +533,9 @@ VERBS = {
 
 def _status_text(s: dict) -> list:
     out = [f"{s['name']} ({s['mode']}): {s['question']}",
+           f"sealed {s['sealed_at']} ({s['plan']}) to pin the target paper: until the first run, edit study.toml and "
+           f"`openlab study amend STUDY --reason ...`; only {', '.join(s['person_fields'])} need a person"
+           if s.get("planning") else
            f"sealed {s['sealed_at']} ({s['plan']}): study.toml is frozen; an edit needs `openlab study amend`"
            if s["sealed"] else "not sealed: the first research run seals (freezes) study.toml and is trial 1; "
            "`openlab study seal STUDY` says what it freezes, then runs it"]

@@ -159,3 +159,13 @@ def bad_total(sums):
     assert (pr["lo"], pr["hi"], pr["p"]) == pytest.approx((ph["lo"], ph["hi"], ph["p"]), rel=1e-9)
     with pytest.raises(StudyError, match="give the metric exactly"):
         interval("bad", y, a)
+
+
+def test_a_paired_difference_uses_only_the_rows_both_methods_scored():
+    from openlab.study.inference import paired
+    y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    a = np.array([1.0, 2.0, np.nan, 4.0, 5.0, 6.0])               # a NaN: a row the method did not score
+    b = np.array([2.0, np.nan, 3.0, 5.0, 6.0, 7.0])
+    d = paired("mae", y, a, b, draws=200)
+    assert d["dropped"] == 2 and d["diff"] == pytest.approx(-1.0)      # rows 0, 3, 4, 5: mae 0 against 1
+    assert "dropped" not in paired("mae", y, y.copy(), y + 1, draws=50)

@@ -215,6 +215,13 @@ def test_a_py_that_can_run_a_person_verb_stays_refused(src):
     assert g and g[0] == "bypass", src
 
 
+def test_script_verbs_are_the_ones_meant_whatever_their_place_in_the_list():
+    said = {what for _, what in hooks.SCRIPT_VERBS}
+    assert {"a holdout look (openlab study holdout)", "an approval (study approve)",
+            "resuming a paused agent (openlab agent resume)", "relaunching an ended agent (openlab agent relaunch)",
+            "a holdout look from Python"} <= said and len(said) == 7
+
+
 @pytest.mark.parametrize("path,src", [
     ("/w/peek.sh", f'echo "{HOLD}"\n'),
     ("/w/peek.bash", f'MSG="{AMEND}"\n'),

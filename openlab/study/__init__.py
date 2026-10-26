@@ -513,9 +513,12 @@ class Study:
         last = rec.last("result")
         from .ledger import shared
         ledger = shared(self.folder, rec)
+        planning = plan is not None and _spec._planning(rec)        # a replication sealed early, not yet run
         return {
             "name": spec.name, "question": spec.question, "mode": spec.mode,
             "sealed": plan is not None, "plan": plan and plan.id, "sealed_at": plan and plan.at,
+            "planning": planning,       # until the first run an agent amends all but `person_fields`, with a reason
+            "person_fields": list(_spec.REVIEW_FIELDS if planning else _spec.PERSON_FIELDS) if plan else [],
             "amendments": [{"id": n.id, "at": n.at, "actor": n.actor, "reason": n.payload["reason"],
                             "changed": list(n.payload["changes"])} for n in rec.find("amendment")],
             "datasets": [{"name": k, "rows": n.payload.get("rows"), "sha": n.payload.get("sha256")}

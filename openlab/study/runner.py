@@ -978,7 +978,8 @@ def _paired(metric: str, y, a, b, boot: dict, **ctx) -> dict:
         return {"metric": metric, "diff": None, "reason": str(e)}
     out = {"metric": metric, **{k: _num(d[k]) for k in ("diff", "lo", "hi", "p")},
            "better": {"a": "model", "b": "baseline"}.get(d["better"]),
-           **({"nominal": d["nominal"]} if "nominal" in d else {})}
+           **({"nominal": d["nominal"]} if "nominal" in d else {}),
+           **({"dropped": d["dropped"]} if d.get("dropped") else {})}       # rows one of the two did not score
     return out if out["diff"] is not None else {**out, "reason": f"{metric} is undefined on these rows"}
 
 

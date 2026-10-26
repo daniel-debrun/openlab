@@ -57,10 +57,12 @@ def _rsync(args: list, timeout: float = 3600) -> subprocess.CompletedProcess:
 
 
 def push(n: Node, cwd: Path, wdir: str) -> dict:
-    """Copy `cwd` to `wdir` on the node (nothing is deleted there: outputs made on the node stay)."""
+    """Copy `cwd` to `wdir` on the node (nothing is deleted there: outputs made on the node stay). A file newer there
+    is left alone (--update): a run still writing it, whose earlier copy came back here, keeps its open file; rsync
+    would otherwise rename a new copy over it, and on a shared filesystem the run's handle goes stale."""
     n.sh(f"mkdir -p {shlex.quote(wdir)}", timeout=60)
     t0 = time.monotonic()
-    p = _rsync(["-a", "--stats", "-e", n.rsh(), *_excludes(n), f"{cwd}/", f"{n.host}:{wdir}/"])
+    p = _rsync(["-a", "--update", "--stats", "-e", n.rsh(), *_excludes(n), f"{cwd}/", f"{n.host}:{wdir}/"])
     if p.returncode:
         raise NodeError(f"copying {cwd} to {n.name} failed: {(p.stderr or p.stdout).strip()[-400:]}")
     sent = next((ln.split(":", 1)[1].strip() for ln in p.stdout.splitlines() if ln.startswith("Total bytes sent")), "")

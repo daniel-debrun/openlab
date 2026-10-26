@@ -306,6 +306,48 @@ def spawn(root, prompt: str, role: str = "agent", study: Optional[str] = None, q
     return out
 
 
+def relaunch(store: Store, root: Path, id: str, message: str, by: str, sig: Optional[dict] = None) -> dict:
+    """Start an ended Claude agent again in its own session (`claude -p MESSAGE --resume SESSION`), under a new
+    supervisor: the same id, budget, children and allocation request, its spend carried on. For a lead that ended
+    while its workers still run (Claude Code -p ending its last turn). A person's act: `openlab agent relaunch`."""
+    from .store import FINAL
+    a = store.get(id)
+    if a is None:
+        raise AgentError(f"no agent {id!r}", "it is not registered in this workspace", "`openlab agents --all`")
+    if a["kind"] != "spawned" or a["cli"] != "claude" or not a["session_id"]:
+        raise AgentError(f"{id} has no Claude session openlab started", "only a spawned claude agent can be relaunched",
+                         "spawn a new agent with the work that is left")
+    if a["status"] not in FINAL:
+        raise AgentError(f"{id} is {a['status']}", "only an agent that has ended is relaunched",
+                         "a paused agent is resumed: `openlab agent resume`")
+    d = store.agent_dir(id)
+    (d / "relaunch.txt").write_text(message)
+    store.update(id, exit_code=None, control="", control_reason="")
+    store.set_status(id, "running")
+    store.event(id, "relaunch", summary=f"relaunched by {by}: {message}",
+                payload={"message": message, "by": by, **({"sig": sig} if sig else {})})
+    log = open(d / "supervisor.log", "ab")
+    sup = subprocess.Popen([sys.executable, "-m", "openlab.agents.supervisor", str(root), id],
+                           stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, cwd=str(root),
+                           env={**os.environ, "OPENLAB_WORKSPACE": str(root), "OPENLAB_AGENT_TOKEN": store.token(id)})
+    log.close()
+    store.update(id, supervisor=sup.pid)
+    launch = json.loads((d / "launch.json").read_text()) if (d / "launch.json").is_file() else {}
+    if launch.get("resources"):                         # its old allocation ended with it: ask again, same shape
+        from ..nodes import alloc as A
+        from ..nodes.inventory import NodeError
+        try:
+            row = A.request(root, id, launch["resources"], sup.pid, launch.get("params"))
+        except NodeError as e:
+            store.event(id, "allocation_refused", summary=e.error)
+            raise AgentError(e.error, e.meaning, e.try_) from None
+        store.event(id, "allocation_request", summary=A.describe(row) + f" ({row['state']}"
+                    + (f": {row['why']})" if row["why"] else ")"),
+                    payload={"allocation": row["id"], "state": row["state"], "why": row["why"],
+                             "request": launch["resources"]})
+    return store.get(id)
+
+
 def settings_for_spawn() -> dict:
     """The openlab hooks, passed with --settings so the gates hold for a spawned agent in any folder (identical
     to what `openlab init --claude` writes, so a project copy runs once)."""
