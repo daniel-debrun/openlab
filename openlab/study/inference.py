@@ -73,7 +73,20 @@ def paired(metric: str, y, pred_a, pred_b, *, blocks=None, draws: int = 1000, se
     """The difference ``metric(a) - metric(b)`` on the same rows, bootstrapped on the same draws.
     ``p`` is two-sided: twice the smaller share of draws on either side of 0. ``better`` is ``"a"`` or ``"b"``
     by the point values and the metric's direction: for a target-valued metric (coverage90) the one closer to its
-    ``nominal`` value, which the reply carries (None for a tie or a metric with no order)."""
+    ``nominal`` value, which the reply carries (None for a tie or a metric with no order). Point predictions are
+    paired on the rows both make (a NaN is a row a method did not score); ``dropped`` says how many were left out."""
+    dropped = 0
+    va = vb = None
+    if not (hasattr(pred_a, "columns") or hasattr(pred_b, "columns")):
+        va, vb = np.asarray(pred_a), np.asarray(pred_b)
+    if va is not None and va.ndim == vb.ndim == 1 and va.dtype.kind == vb.dtype.kind == "f":
+        both = np.isfinite(va) & np.isfinite(vb)
+        dropped = int((~both).sum())
+        if dropped:
+            if not both.any():
+                raise StudyError("the two methods score no row in common", "a paired difference needs shared rows")
+            y, pred_a, pred_b = _take(y, both), va[both], vb[both]
+            blocks = None if blocks is None else np.asarray(blocks)[both]
     sa, sb = score(metric, y, pred_a, **ctx), score(metric, y, pred_b, **ctx)
     diff = sa - sb
     ds, Ra = [], row_stats(metric, y, pred_a, **ctx)
@@ -92,7 +105,7 @@ def paired(metric: str, y, pred_a, pred_b, *, blocks=None, draws: int = 1000, se
     win = better(metric, sa, sb, ctx.get("level"))
     nom = nominal(metric, ctx.get("level"))
     return {"diff": diff, "lo": lo, "hi": hi, "p": p, "better": None if win is None else "a" if win else "b",
-            **({"nominal": nom} if nom is not None else {})}
+            **({"nominal": nom} if nom is not None else {}), **({"dropped": dropped} if dropped else {})}
 
 
 def _t_tail(t: float, df: float) -> tuple:

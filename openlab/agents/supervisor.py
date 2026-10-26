@@ -186,7 +186,7 @@ class ClaudeStream:
         cur = (self.store.get(self.id) or {}).get("spent", {})
         vals = {"usd_estimated": False}
         if obj.get("total_cost_usd") is not None:
-            vals["usd"] = round(float(obj["total_cost_usd"]), 6)
+            vals["usd"] = round(float(obj["total_cost_usd"]), 6)   # the session's total, a --resume'd one's too
         if u:
             tin = sum(int(u.get(k) or 0) for k in ("input_tokens", "cache_creation_input_tokens",
                                                    "cache_read_input_tokens"))
@@ -293,7 +293,10 @@ def command(root: Path, agent: dict, d: Path) -> list:
             cmd += ["-m", agent["model"]]
         return cmd + [brief_text + "\n\n" + prompt]
     exe = os.environ.get("OPENLAB_CLAUDE_BIN") or shutil.which("claude") or "claude"
-    cmd = [exe, "-p", prompt, "--output-format", "stream-json", "--verbose", "--session-id", agent["session_id"],
+    again = d / "relaunch.txt"                          # `openlab agent relaunch`: the same session, told why it goes on
+    session = ["--resume", agent["session_id"]] if again.is_file() else ["--session-id", agent["session_id"]]
+    cmd = [exe, "-p", again.read_text() if again.is_file() else prompt, "--output-format", "stream-json", "--verbose",
+           *session,
            "--mcp-config", str(d / "mcp.json"), "--strict-mcp-config", "--settings", str(d / "settings.json"),
            "--permission-mode", launch.get("permission_mode") or "acceptEdits",
            "--append-system-prompt", brief_text]
@@ -492,7 +495,10 @@ class Supervisor:
         a = self.agent
         cmd = command(self.root, a, self.dir)
         env = {**os.environ, "OPENLAB_AGENT": self.id, "OPENLAB_WORKSPACE": str(self.root),
-               "OPENLAB_AGENT_TOKEN": os.environ.get("OPENLAB_AGENT_TOKEN") or self.store.token(self.id)}
+               "OPENLAB_AGENT_TOKEN": os.environ.get("OPENLAB_AGENT_TOKEN") or self.store.token(self.id),
+               # claude -p stops background tasks and exits 10 min after its last turn; a lead waiting on a long
+               # run would end as done, its children orphaned. Openlab's wall-minute budget bounds the wait instead
+               "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", "0")}
         if held is not None:
             from ..nodes import alloc as A
             aenv, prefix = A.launch(held)

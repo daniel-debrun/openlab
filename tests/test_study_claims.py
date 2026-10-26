@@ -158,6 +158,9 @@ def test_an_agent_cannot_type_a_verdict(s):
         s.claim("x", "observed", [r], tests=_hypothesis(s, s.question("q?")["id"]))
     with pytest.raises(StudyError, match="hypothesized claims rest on one `tests` link"):
         s.claim("x", "hypothesized")
+    with pytest.raises(StudyError, match="and on nothing else") as e:
+        s.claim("x", "observed", [r, c["id"]])                  # a result and a claim: the claim is not allowed
+    assert f"not allowed here: {c['id']}" in e.value.meaning and "derived" in e.value.fix
     unknown = s.claim("No study tests EMOS outside Europe.", "unknown", searched=s.record.find("coverage")[0].id)
     assert (unknown["payload"]["verdict"], unknown["payload"]["level"]) == ("untested", "")
 

@@ -14,7 +14,8 @@ if os.environ.get("FAKE_ARGV"):
         json.dump({"argv": args, "agent": os.environ.get("OPENLAB_AGENT"), "ws": os.environ.get("OPENLAB_WORKSPACE"),
                    "cwd": os.getcwd(), "allocation": os.environ.get("OPENLAB_ALLOCATION"),
                    "cuda": os.environ.get("CUDA_VISIBLE_DEVICES"), "capacity": os.environ.get("OPENLAB_BOX_CAPACITY"),
-                   "affinity": sorted(os.sched_getaffinity(0))}, f)
+                   "affinity": sorted(os.sched_getaffinity(0)),
+                   "bg_ceiling": os.environ.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS")}, f)
 mode = os.environ.get("FAKE_MODE", "normal")
 if "--fork-session" in args:                       # a side question (openlab.agents.btw): one JSON answer
     q = args[args.index("-p") + 1]
@@ -51,7 +52,8 @@ if mode == "normal":
          "tool_use_id": "toolu_task1", "content": "screened 3 sources"}]}})
     out({"type": "assistant", "parent_tool_use_id": None, "message": {"id": "m3", "model": "claude-haiku-4-5",
          "content": [{"type": "text", "text": "Done: recorded nothing yet."}], "usage": usage(1500, 20)}})
-    out({"type": "result", "subtype": "success", "is_error": False, "num_turns": 3, "total_cost_usd": 0.0123,
+    out({"type": "result", "subtype": "success", "is_error": False, "num_turns": 3,
+         "total_cost_usd": 0.0246 if "--resume" in args else 0.0123,          # a resumed session counts it all
          "session_id": sid, "result": "Done: recorded nothing yet.", "usage": usage(3700, 110)})
 elif mode == "slow":
     for i in range(int(os.environ.get("FAKE_N", "300"))):

@@ -1498,8 +1498,13 @@ class Claim(Body):
                              f"they rest on `{rel}` -> {' or '.join(kinds)}")
         grounds = links.get(rel, [])
         if not grounds or (one and len(grounds) > 1) or any(n.kind not in kinds for n in grounds):
+            off = [n.id for n in grounds if n.kind not in kinds]
             raise StudyError(f"{self.state} claims rest on {'one' if one else 'at least one'} `{rel}` link to "
-                             f"{' or '.join(kinds)}", f"got {', '.join(n.id for n in grounds) or 'none'}")
+                             f"{' or '.join(kinds)}" + (", and on nothing else" if not one else ""),
+                             f"got {', '.join(n.id for n in grounds) or 'none'}"
+                             + (f"; not allowed here: {', '.join(off)}" if off else ""),
+                             "a claim built on other claims is `derived` (or `inferred`)" if off and self.state ==
+                             "observed" else "")
         want = claim_fields(rec, self.statement, self.state, links)
         self._bound(rec, grounds)
         typed = [f"{k}: typed {getattr(self, k)!r}, computed {v!r}" for k, v in want.items() if getattr(self, k) != v]
@@ -2110,7 +2115,14 @@ def replication_fields(rec: "Record", links: dict, metric: str, arm: str, tolera
     reference is the gating baseline closest to the nominal value, and `vs_reference` says whether ours is closer to
     the nominal value than that baseline, or n/a with the reason."""
     from .metrics import METRICS, best, nominal
-    target, evidence, result, gates = links["for"][0], links["paper"][0], links["ours"], links["gated_by"]
+    target, evidence, result, gates = links["for"][0], links["paper"][0], links["ours"], links.get("gated_by", [])
+    if not gates:
+        raise StudyError("a replication needs at least one gating fidelity (`gated_by`)",
+                         "its verdict is against the paper's best gating baseline, and a passed fidelity is what shows "
+                         "the rebuild is faithful, so a miss is the paper's and not the rebuild's",
+                         "check a baseline the paper prints with study_fidelity and gate on it; when the paper prints "
+                         "no baseline, record the comparison as a claim (study_claim, observed, resting on the result "
+                         "and the evidence)")
     _within(target, tolerance, justification)
     ours = _ours(rec, result, metric, arm, group)
     for g in gates:

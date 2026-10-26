@@ -208,6 +208,12 @@ def agent_main(argv) -> int:
         x = sub.add_parser(verb, help=what, description=f"{what}. --reason is required: it goes on the record.")
         x.add_argument("id")
         x.add_argument("--reason", required=True, help="why (required; recorded)")
+    x = sub.add_parser("relaunch", help="start an ended Claude agent again in its own session: a person's act (asks "
+                       "for your passphrase)", description="Start an ended Claude agent again: `claude -p MESSAGE "
+                       "--resume SESSION` under a new supervisor, the same id, budget and children. For a lead that "
+                       "ended while its workers still run. --reason is recorded and is the message it gets.")
+    x.add_argument("id")
+    x.add_argument("--reason", required=True, help="why it goes on: recorded, and the message the agent is given")
     x = sub.add_parser("tell", help="direct a working agent: the text reaches it at its next tool call",
                        description="Direct a working agent (a person, or a supervising agent): the text is recorded "
                        "and delivered into the agent's context at its next tool call.")
@@ -216,7 +222,36 @@ def agent_main(argv) -> int:
     x.add_argument("--person", action="store_true", help="sign it with your person key (it asks for the passphrase), so "
                    "the agent can trust it is yours; unsigned, it reaches the agent as advice")
     a = p.parse_args(argv)
-    return {"spawn": _spawn, "log": _log, "status": _status, "tell": _tell}.get(a.verb, _control)(a)
+    return {"spawn": _spawn, "log": _log, "status": _status, "tell": _tell,
+            "relaunch": _relaunch}.get(a.verb, _control)(a)
+
+
+def _relaunch(a) -> int:
+    from . import person
+    from .spawn import AgentError, relaunch
+    st = _store(a.root)
+    ag = st.get(a.id)
+    if ag is None:
+        print(f"error: no agent {a.id}", file=sys.stderr)
+        return 1
+    msg = (f"The person relaunched you in this same session after you ended (status {ag['status']}). Their reason: "
+           f"{a.reason}\nCheck your children and your plan (openlab_tool agent_status, your plan nodes), then go on "
+           "with the work. Never end a turn with nothing pending while work you lead still runs: leave a background "
+           "wait (it wakes you when it ends; no time limit now) or wait in the foreground.")
+    try:
+        with person.act(f"relaunch {a.id} ({ag['role'] or 'agent'}, {ag['status']})",
+                        [f"reason: {a.reason}", f"session {ag['session_id'] or '-'}"]) as signer:
+            sig = {"key": signer.fingerprint, "value": signer.sign(f"openlab-relaunch|{a.id}|{a.reason}".encode())}
+            ag = relaunch(st, st.root, a.id, msg, signer.label, sig)
+    except person.NotAPerson as e:
+        print(f"error: relaunching an agent is a person's act: {e}", file=sys.stderr)
+        return 1
+    except AgentError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(f"relaunched {a.id} in session {ag['session_id']} (supervisor pid {ag['supervisor']})\n"
+          f"  log: openlab agent log {a.id} -f")
+    return 0
 
 
 def _tell(a) -> int:
@@ -230,8 +265,11 @@ def _tell(a) -> int:
         print("error: tell needs the text", file=sys.stderr)
         return 1
     by, sig = os.environ.get("OPENLAB_AGENT") or current() or "person", None
-    if not st.is_lead(ag) and not any(x["id"] == by for x in st.ancestors(a.id)):
-        lead = next((x["id"] for x in reversed(st.ancestors(a.id)) if st.is_lead(x)), ag["parent"])
+    from .store import FINAL
+    ups = st.ancestors(a.id)
+    orphan = bool(ups) and all(x["status"] in FINAL for x in ups) and not os.environ.get("OPENLAB_AGENT")
+    if not st.is_lead(ag) and not orphan and not any(x["id"] == by for x in ups):   # orphan: no one above it to pass it on
+        lead = next((x["id"] for x in reversed(ups) if st.is_lead(x)), ag["parent"])
         print(f"error: {a.id} works under {lead}: only its lead directs it\n"
               f"  try: openlab agent tell {lead} \"...\" (it can pass it on)", file=sys.stderr)
         return 1

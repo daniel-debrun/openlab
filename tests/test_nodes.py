@@ -299,6 +299,18 @@ def test_exec_copies_the_folder_runs_inside_the_allocation_and_copies_results_ba
         assert done["files"] == ["result.json"] and json.loads((work / "result.json").read_text()) == {"loss": 0.1}
         kinds = [e["kind"] for e in Store(ws).events("w1", n=20)]
         assert "node_run" in kinds and "node_run_end" in kinds
+        log = remote / "train.log"                                  # a run still writing what came back here
+        log.write_text("step 1\n")
+        (work / "train.log").write_text("step 1\n")                # its copy here, older than the node's
+        os.utime(work / "train.log", (time.time() - 60, time.time() - 60))
+        with log.open("a") as held:
+            held.write("step 2\n")
+            inode = log.stat().st_ino
+            (work / "main.py").write_text((work / "main.py").read_text() + "# edited\n")
+            R.push(R.get(a["node"]), work, str(remote))
+            held.write("step 3\n")
+        assert log.stat().st_ino == inode and log.read_text() == "step 1\nstep 2\nstep 3\n"
+        assert (remote / "main.py").read_text().endswith("# edited\n")    # what changed here still goes
         t0 = time.monotonic()
         slow = R.start(a, "w1", ws, work, "sleep 31.25")
         assert time.monotonic() - t0 < 10                          # started detached
@@ -381,6 +393,22 @@ def test_the_supervisor_runs_a_worker_inside_its_local_allocation_and_lets_go_at
     assert alloc["state"] == "ended"
     kinds = [e["kind"] for e in Store(ws).events(a["id"], n=50)]
     assert {"allocation_request", "allocation_start", "allocation_end"} <= set(kinds)
+
+
+def test_a_relaunched_worker_asks_for_its_allocation_again(ws, tmp_path):
+    from openlab.agents.spawn import relaunch
+    a = spawn(ws, "work", resources={"cores": 1, "memory_gb": 1}, node="local")
+    st = Store(ws)
+    final(st, a["id"])
+    first = a["allocation"]["id"]
+    assert A.get_alloc(first)["state"] == "ended"
+    relaunch(st, ws, a["id"], "go on", "person:test")
+    final(st, a["id"])
+    seen = json.loads((tmp_path / "argv.json").read_text())
+    assert seen["allocation"] and seen["allocation"] != first and "--resume" in seen["argv"]
+    assert A.get_alloc(seen["allocation"])["state"] == "ended"
+    kinds = [e["kind"] for e in st.events(a["id"], n=80)]
+    assert kinds.count("allocation_start") == 2 and kinds.count("allocation_end") == 2
 
 
 def test_a_worker_waits_for_its_allocation_and_a_person_can_stop_it_meanwhile(ws, tmp_path):

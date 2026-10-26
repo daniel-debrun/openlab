@@ -95,11 +95,23 @@ def test_replicate_pins_the_paper_and_scaffolds_the_rebuild(s):
 def test_an_agent_plans_the_experiment_until_the_first_run(s):
     toml = s.folder / "study.toml"
     toml.write_text(toml.read_text().replace('horizon = "1d"', 'horizon = "2d"').replace("trials = 20", "trials = 30"))
+    st = s.status()
+    assert st["sealed"] and st["planning"] and st["person_fields"] == ["review.coverage_floor", "review.comparable_on"]
+    assert "until the first run" in "\n".join(cli._status_text(st))
     assert s.amend("the paper's 48 h lead time")["payload"]["person_fields"] == []
     result(s)
+    st = s.status()
+    assert not st["planning"] and "budget" in st["person_fields"] and "frozen" in "\n".join(cli._status_text(st))
     toml.write_text(toml.read_text().replace("trials = 30", "trials = 40"))
     with pytest.raises(StudyError, match="budget can only be amended by a person"):
         s.amend("more trials")
+
+
+def test_an_ungated_replication_is_refused_saying_what_to_do_instead(s, table):
+    r = result(s)
+    with pytest.raises(StudyError, match="at least one gating fidelity") as e:
+        s.replication(table["nn"], r, [])
+    assert "study_claim" in e.value.fix and not s.record.find("replication")
 
 
 def test_a_typed_number_or_verdict_is_refused(s, table):

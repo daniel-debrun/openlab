@@ -365,8 +365,9 @@ def test_a_cycle_pass_waits_for_every_job(lab):
     assert E.job(ws, "tender", "paper_trial", "scan", at=ny(21, 9, 30))["ended"]["state"] == "concluded"
 
 
-def test_until_ends_it_at_the_first_job_after(lab, spawned):
+def test_until_ends_it_at_the_first_job_after(lab, spawned, monkeypatch):
     ws, folder, _, _ = lab
+    monkeypatch.setattr(E, "_now", lambda: ny(19, 12, 0))       # started the Monday before, whatever today is
     started(lab, spec(stop="until = 2026-10-20T12:00:00-04:00"))
     assert E.job(ws, "tender", "paper_trial", "scan", at=ny(20, 9, 30))["ran"]
     r = E.job(ws, "tender", "paper_trial", "scan", at=ny(20, 12, 10))

@@ -11,7 +11,7 @@ import pytest
 
 from agents_fake import final, install, wait
 from openlab.agents.claude_setup import ROLES
-from openlab.agents.spawn import AgentError, spawn
+from openlab.agents.spawn import AgentError, relaunch, spawn
 from openlab.agents.store import Store
 
 
@@ -30,6 +30,24 @@ def ws(tmp_path, monkeypatch):
                     os.killpg(pid, sig) if group else os.kill(pid, sig)
                 except (ProcessLookupError, PermissionError, TypeError, OSError):
                     pass
+
+
+def test_an_ended_lead_is_relaunched_in_its_own_session_and_its_spend_carries_on(ws, tmp_path):
+    a = spawn(ws, "look at the demo study", role="lead")
+    st = Store(ws)
+    final(st, a["id"])
+    first = json.loads((tmp_path / "argv.json").read_text())
+    assert first["bg_ceiling"] == "0"                   # claude -p waits on its background tasks, not 10 min
+    st.register("busy-1", "spawned", cli="claude", session_id="s-1", status="running")
+    with pytest.raises(AgentError, match="busy-1 is running"):
+        relaunch(st, ws, "busy-1", "go on", "person:test")
+    relaunch(st, ws, a["id"], "go on: the replicator still trains", "person:test")
+    done = wait(st, a["id"], lambda x: x["status"] == "done" and x["spent"]["usd"] > 0.02)
+    argv = json.loads((tmp_path / "argv.json").read_text())["argv"]
+    assert argv[argv.index("--resume") + 1] == a["session_id"] and "--session-id" not in argv
+    assert argv[argv.index("-p") + 1] == "go on: the replicator still trains"
+    assert done["spent"]["usd"] == pytest.approx(2 * 0.0123)
+    assert "relaunch" in [e["kind"] for e in st.events(a["id"], n=100)]
 
 
 def test_spawn_parses_the_stream_into_events_and_spend(ws, tmp_path):

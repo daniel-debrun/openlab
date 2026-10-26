@@ -43,6 +43,7 @@ PERSON_VERBS = [
     (re.compile(r"\binbox\s+(approve|deny)\b"), "an inbox decision (openlab inbox approve|deny)"),
     (re.compile(r"\binbox\s+answer\b"), "answering a question in the inbox (openlab inbox answer)"),
     (re.compile(r"\bagent\s+resume\b"), "resuming a paused agent (openlab agent resume)"),
+    (re.compile(r"\bagent\s+relaunch\b"), "relaunching an ended agent (openlab agent relaunch)"),
     (re.compile(r"\.holdout\s*\(|\bholdout\.look\s*\("), "a holdout look from Python"),
     (re.compile(r"\bperson\s*=\s*True\b"), "a person's act from Python (person=True)"),
     (re.compile(r"\bstudy_(holdout|amend_person|screen_person|approve)\b"), "a person-only tool"),
@@ -108,7 +109,7 @@ DECODE_EXEC = re.compile(
     r"(sudo\s+)?(env\s+[^|;&]*)?\b(ba|z|da|k|fi|c|tc)?sh\b|"
     r"\b(base64|base32|xxd|openssl|uudecode)\b[^;&\n]*\|\s*(python[0-9.]*|perl|ruby|node|php)\b|"
     r"\beval\b\s*[\"']?\s*(\$\(|`)|\beval\b[^;|&\n]*\b(base64|xxd|decode)\b|"
-    r"\b(ba|z|da|k)?sh\s+(-c\s+)?[\"']?(<\(|\$\(|`)|\bsource\s+<\(|\.\s+<\(|"
+    r"\b(ba|z|da|k)?sh\s+(-c\s+[\"']?(\$\(|`)|[\"']?<\()|\bsource\s+<\(|\.\s+<\(|"   # not bash "$(dirname x)"/f.sh
     r"\b(exec|eval|compile)\s*\([^)]*\b(b64decode|a85decode|b32decode|decode|fromhex|unhexlify|codecs|zlib|"
     r"marshal|rot13|chr\s*\()|"
     r"\b__import__\s*\(\s*['\"](base64|codecs|zlib)")
@@ -198,6 +199,9 @@ class _Unclear(Exception):
     """A shape the reader does not follow: the line is read whole."""
 
 
+#: a pty tool named at the start of a quoted string or list item in code a heredoc hands to python, perl...:
+#: os.system("script -qc ..."), ["unbuffer", ...]
+PTY_CALL = re.compile(r"[\"'`]\s*(script|expect|unbuffer|empty|ttyrec|faketty|zpty|autoexpect)\b(?=[\s\"',])")
 _REDIR_OP = re.compile(r"(\d*)(&>>|&>|<<<|<<-|<<|>>|>\||>&|<&|<>|>|<)")
 _NAME_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
 _SHELLS = frozenset(("sh", "bash", "zsh", "dash", "ksh", "mksh", "ash", "fish"))
@@ -618,8 +622,14 @@ def _data_spans(cmd: str, cmds: list[dict]) -> list[tuple[int, int]]:
 
 
 def _scrub(cmd: str, spans: list[tuple[int, int]]) -> str:
-    """The line with each data span written as `_`."""
-    for a, b in sorted(set(spans), reverse=True):
+    """The line with each data span written as `_` (overlapping spans merged first)."""
+    merged: list[list[int]] = []
+    for a, b in sorted(set(spans)):
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    for a, b in reversed(merged):
         cmd = cmd[:a] + "_" + cmd[b:]
     return cmd
 
@@ -772,7 +782,7 @@ def _in_record(path: str) -> bool:
 
 # --- the edit gate on scripts (B5) ----------------------------------------------------------------------------
 #: the person verbs a written script must not run
-SCRIPT_VERBS = PERSON_VERBS[:4] + PERSON_VERBS[6:8]
+SCRIPT_VERBS = PERSON_VERBS[:4] + PERSON_VERBS[6:9]       # the study verbs; agent resume, relaunch; .holdout(
 #: files a shell runs as written: any person-verb text in them is refused
 SHELL_SUFFIXES = (".sh", ".bash", ".zsh", ".ksh", ".exp", ".mk", "")
 JS_SUFFIXES = (".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx")
@@ -943,16 +953,22 @@ def guard(tool: str, inp: dict, _depth: int = 0) -> Optional[tuple[str, str, str
             payloads = _payloads(cmds) if _depth < 4 else []
             spans = _data_spans(cmd, cmds)
             named = _names_openlab(cmd, cmds, spans, _depth)
+            code = [h["body"] for c in cmds for h in c["heredocs"] if h["body"]      # what python, perl... read:
+                    if _program(c)[0] not in _SHELLS]                                 # its lines are no commands
+            words = _scrub(cmd, spans + code)
+            called = "\n".join(cmd[a:b] for a, b in code)        # but code that shells out to a pty tool is read
             cmd = _scrub(cmd, spans)
         except Exception:                       # noqa: BLE001 -- _Unclear, or a shape the reader trips on: read whole
-            named = None
+            named, words, called = None, cmd, ""
         cmd = cmd + "\n" + re.sub(r"['\"]|\\(?=[A-Za-z])", "", cmd)     # also as written without quote splicing
+        words = words + "\n" + re.sub(r"['\"]|\\(?=[A-Za-z])", "", words)
         for rx, what in PERSON_VERBS:
             if rx.search(cmd):
                 return "bypass", f"{what} is a person's act; an agent cannot run it, in any wrapper", ASK
         if act:
             return "bypass", f"{act} is a person's act; an agent cannot run it, in any wrapper", ASK
-        pty = [w for w in _command_words(cmd) + programs if w in PTY_WORDS]
+        pty = [w for w in _command_words(words) + programs if w in PTY_WORDS] + \
+            [m.group(1) for m in PTY_CALL.finditer(called)]
         if pty or PTY_TEXT.search(cmd):
             return ("bypass", f"{(pty or ['a pty'])[0]} fakes an interactive terminal, which openlab's person gates "
                     "read as a person; it is refused to agents", "run the command plainly; for a person's act, " + ASK)
